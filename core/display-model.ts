@@ -196,7 +196,8 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     if (mappedRow !== null && sample && sample.onGround !== true &&
         recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= GROUND_SPEED_KT) {
       let row = bucketIndex(recommendationIas, boundaries);
-      if(profile.vs_min.no_ballast_kt===null&&recommendationIas<boundaries[0])row=0;
+      // The lower scale edge is not a recommendation cutoff; LOW is handled separately.
+      if (recommendationIas < boundaries[0]) row = 0;
       if(profile.wsg&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
       if(profile.wsg&&profile.vne!==null&&recommendationIas>profile.vne)row=-1;
       const currentGroup=base.currentRow;

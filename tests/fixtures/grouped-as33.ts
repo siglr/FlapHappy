@@ -44,3 +44,11 @@ export function groupedCases(p:Profile){
     {name:'physical 6 remains exact',ias:kphToKt(102),index:6,actual:'6',group,rec:'N',direction:'faster'},
   ] as const;
 }
+
+export function lowerBoundCases(kind:'native'|'wsg',stall:boolean){
+  const p=groupedAs33(kind);
+  p.vs_min=stall?{no_ballast_kt:kphToKt(65),max_ballast_kt:kphToKt(75)}:{no_ballast_kt:null,max_ballast_kt:null};
+  // The WSG no-stall visual floor is 100 minus the median visible gap (22.5 km/h).
+  const floor=stall?kphToKt(65):kphToKt(77.5);
+  return {p,floor};
+}
