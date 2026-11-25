@@ -312,7 +312,14 @@ export class App {
     const d = profileForWeightMode(draft, weightMode);
     await this.deps.store.save(d);
     await this.refreshMetas();
+    const newlySelected = this.profile?.id !== d.id;
     const did = this.setActiveProfile(cloneProfile(d), false);
+    if (did && newlySelected) {
+      // Saving a newly created local profile is an explicit selection, just like the picker.
+      // Retain it for this exact aircraft title across restart; never guess an alias.
+      this.manualPick = true;
+      if (this.lastTitle) this.settings.active_by_title[this.lastTitle] = d.id;
+    }
     this.settings.last_profile_id = d.id;
     this.persistSoon();
     this.setUnsaved(null);

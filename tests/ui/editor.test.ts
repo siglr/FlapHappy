@@ -31,19 +31,14 @@ describe('settings editor: build the AS 33 Me table from scratch', () => {
     const page = await env.newPage('?seed=none', { width: 1100, height: 1500 });
     // No profile yet: the editor opens by itself.
     await page.waitForSelector('.fh-settings');
-    expect(await page.$eval('.fh-settings .fh-hint', (e) => e.textContent)).toContain('No profile yet');
-
-    await page.evaluate(async (p) => {
-      const a = (window as any).__flapHappy.app;
-      await a.store.save(p);
-      await a.refreshMetas();
-      await a.activate(p.id, true);
-      a.closeSettings();
-      a.openSettings();
-    }, createBlankProfile('new-profile'));
+    expect(await page.locator('.fh-pbar').textContent()).toContain('No profile yet');
+    await page.click('.fh-new');
+    await page.fill('.fh-new-name', 'New profile');
+    await page.click('.fh-create');
+    expect(await page.evaluate(async () => (await (window as any).__flapHappy.app.store.list()).length)).toBe(0);
     await page.waitForSelector('.fh-settings .fh-addrow');
     expect(await rowCount(page)).toBe(0);
-    expect(await page.$eval('.fh-settings .fh-profilename', (e) => e.textContent)).toBe('new-profile');
+    expect(await page.locator('.fh-profile-select').inputValue()).toBe('new-profile');
     expect(await page.$('.fh-settings .fh-name')).toBeNull();
 
     for (let n = 1; n <= 6; n++) {
@@ -112,6 +107,8 @@ describe('settings editor: row rules, validation, undo', () => {
       a.closeSettings();
       a.openSettings();
     }, profileJson as any);
+    await page.waitForSelector('.fh-mapping');
+    if (!(await page.locator('.fh-mapping').evaluate((d: HTMLDetailsElement) => d.open))) await page.click('.fh-mapping summary');
     await page.waitForSelector('.fh-settings .fh-addrow');
     return page;
   }
@@ -194,7 +191,7 @@ describe('settings editor: row rules, validation, undo', () => {
     expect(await page.$('.fh-dragghost')).toBeNull();
     expect(await labels()).toEqual(['2', '3', '1']);
     expect(await t1()).toBe(before);
-    expect(await page.$eval('.fh-settings .fh-transname', (e) => e.textContent)).toBe('Transition 2 -> 3');
+    expect(await page.$eval('.fh-settings .fh-transname', (e) => e.textContent)).toBe('2 → 3');
     expect(await page.$$eval('.fh-settings .fh-frow .fh-handle', (e) => e.map((x) => (x as HTMLInputElement).value))).toEqual(['0', '1', '2']);
     await page.close();
   });
@@ -202,28 +199,47 @@ describe('settings editor: row rules, validation, undo', () => {
 });
 
 describe('profile library: presets, import and export', () => {
-  it('shows the name of the loaded profile and has no profile menus', async () => {
+  it('lists local profiles at the top and prevents switching away from unsaved changes', async () => {
     const page = await env.newPage('?seed=demo', { width: 1100, height: 900 });
     await page.click('.fh-cog');
-    await page.waitForSelector('.fh-settings .fh-profilename');
-    expect(await page.$eval('.fh-settings .fh-profilename', (e) => e.textContent)).toBe('as33-18m');
+    await page.waitForSelector('.fh-profile-select');
+    expect(await page.locator('.fh-profile-select').inputValue()).toBe('as33-18m');
+    expect(await page.locator('.fh-profile-select option').count()).toBe(5);
     expect(await page.$eval('.fh-dev-count', (e) => (e as HTMLInputElement).value)).toBe('6');
     expect(await page.$eval('.fh-settings .fh-liveline', (e) => e.textContent)).toContain('of 6');
-    expect(await page.$('.fh-settings .fh-new')).toBeNull();
-    expect(await page.$('.fh-settings .fh-profile-select')).toBeNull();
-    expect(await page.$('.fh-settings .fh-name')).toBeNull();
+    await page.selectOption('.fh-profile-select', 'as33-15m');
+    await page.waitForFunction(() => (window as any).__flapHappy.profileId() === 'as33-15m');
+    expect(await page.locator('.fh-profile-select').inputValue()).toBe('as33-15m');
+    expect(await page.locator('.fh-mapping').evaluate((e: HTMLDetailsElement) => e.open)).toBe(false);
+    await page.click('.fh-new');
+    await page.fill('.fh-new-name', 'as33-15m');
+    await page.click('.fh-create');
+    expect(await page.locator('.fh-new-form').textContent()).toContain('already exists');
+    await page.fill('.fh-new-name', 'Another glider');
+    await page.click('.fh-create');
+    expect(await page.locator('.fh-profile-select').inputValue()).toBe('another-glider');
+    expect(await page.locator('.fh-profile-select').isDisabled()).toBe(true);
+    expect(await page.locator('.fh-new').isDisabled()).toBe(true);
+    await page.click('.fh-discard-edits');
+    expect(await page.locator('.fh-profile-select').inputValue()).toBe('as33-15m');
+    expect(await page.locator('.fh-profile-select').isEnabled()).toBe(true);
+    expect(await page.evaluate(async () => (await (window as any).__flapHappy.app.store.list()).length)).toBe(3);
     await page.close();
   });
 
   it('import lands as a draft the user must accept; an existing id is reused; bad files are rejected', async () => {
     const page = await env.newPage('?seed=demo', { width: 1100, height: 1000 });
     const good = exportProfileJson(makeProfile(3, { id: 'as33-18m' }));
-    await page.evaluate((t) => (window as any).__flapHappy.app.importText(t, 'friend.flaphappy.json'), good);
+    await page.click('.fh-cog');
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.selectOption('.fh-profile-select', ':custom');
+    const chooser = await chooserPromise;
+    await chooser.setFiles({name:'friend.flaphappy.json',mimeType:'application/json',buffer:Buffer.from(good)});
     await page.waitForSelector('.fh-settings .fh-importbox');
     expect(await page.$eval('.fh-settings .fh-importbox', (e) => e.textContent)).toContain('valid');
     expect((await page.evaluate(async () => (await (window as any).__flapHappy.app.store.list()).length))).toBe(3);
     await page.click('.fh-settings .fh-accept');
-    await page.waitForFunction(() => document.querySelector('.fh-settings .fh-profilename')?.textContent === 'as33-18m');
+    await page.waitForFunction(() => (document.querySelector('.fh-profile-select') as HTMLSelectElement)?.value === 'as33-18m');
     const ids = await page.evaluate(async () => (await (window as any).__flapHappy.app.store.list()).map((m: { id: string }) => m.id));
     expect(ids).toContain('as33-18m');
     expect(ids).not.toContain('as33-18m-2');
@@ -235,6 +251,27 @@ describe('profile library: presets, import and export', () => {
     await page.waitForSelector('.fh-settings .fh-importbox.bad');
     expect(await page.$eval('.fh-settings .fh-importbox.bad', (e) => e.textContent)).toContain('transitions');
     await page.screenshot({ path: `${SHOT_DIR}/flaphappy-editor-import-error.png`, fullPage: true });
+    await page.close();
+  });
+
+  it('keeps reference and transition columns readable at common viewport widths', async () => {
+    const page = await env.newPage('?seed=demo', {width:800,height:1000});
+    await page.click('.fh-cog');
+    await page.selectOption('.fh-weight-mode', 'live');
+    await fill(page, 'weight_kg.light', '400');
+    await fill(page, 'weight_kg.heavy', '600');
+    for (const width of [800, 640, 533, 400]) {
+      await page.setViewportSize({width,height:1000});
+      const bounds = await page.evaluate(() => Array.from(document.querySelectorAll('.fh-transition-row')).map(row => {
+        const label = row.querySelector('.fh-transname')!.getBoundingClientRect();
+        const inputs = row.querySelectorAll('input');
+        return { labelRight:label.right, left:inputs[0].getBoundingClientRect().left, leftRight:inputs[0].getBoundingClientRect().right,
+          right:inputs[1].getBoundingClientRect().left, rightEnd:inputs[1].getBoundingClientRect().right };
+      }));
+      expect(bounds.length).toBeGreaterThan(0);
+      for (const b of bounds) { expect(b.labelRight).toBeLessThanOrEqual(b.left); expect(b.leftRight).toBeLessThanOrEqual(b.right); expect(b.rightEnd).toBeLessThanOrEqual(width); }
+      await page.screenshot({path:`${SHOT_DIR}/profiles-editor-${width}.png`, fullPage:true});
+    }
     await page.close();
   });
 

@@ -37,14 +37,10 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
     await page.waitForSelector('.fh-display .fh-cell');
     expect(await page.$$eval('.fh-display .fh-cell', (e) => e.length)).toBe(6);
     await page.click('.fh-cog');
-    await page.evaluate(async (p) => {
-      const a = (window as any).__flapHappy.app;
-      await a.store.save(p);
-      await a.refreshMetas();
-      await a.activate(p.id, true);
-      a.closeSettings();
-      a.openSettings();
-    }, createBlankProfile('new-profile'));
+    await page.click('.fh-new');
+    await page.fill('.fh-new-name', 'new-profile');
+    await page.click('.fh-create');
+    expect(fs.existsSync(path.join(ud,'profiles','new-profile.json'))).toBe(false);
     await page.waitForSelector('.fh-settings .fh-addrow');
     const labels = ['5', 'N', '4', '3', '2', '1'];
     for (let i = 0; i < 6; i++) await page.click('.fh-settings .fh-addrow');
@@ -70,6 +66,7 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
     await page.waitForTimeout(650);
     await app.close();
     ({ app, page } = await launch(ud));
+    await page.waitForFunction(() => (window as any).__flapHappy.profileId() === 'new-profile');
     await page.waitForSelector('.fh-ballast-row');
     await page.click('.fh-cog');
     await page.waitForSelector('.fh-weight-mode');
@@ -97,6 +94,19 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
     expect(await page.locator('.fh-settings [data-path="weight_kg.heavy"]').inputValue()).toBe('600');
     await page.click('.fh-settings .fh-save');
     await page.waitForFunction(() => document.querySelector('.fh-settings .fh-savestate')!.textContent === 'Saved and applied');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 900));
+    for (const zoom of [1,1.25,1.5,2]) {
+      await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
+      await page.waitForTimeout(100);
+      const fit = await page.evaluate(() => document.querySelector('.fh-sethead .fh-save')!.getBoundingClientRect().right <= window.innerWidth && Array.from(document.querySelectorAll('.fh-transition-row')).every(row => {
+        const input = row.querySelectorAll('input'); const a = input[0].getBoundingClientRect(), b = input[1].getBoundingClientRect();
+        return a.right <= b.left && b.right <= window.innerWidth;
+      }));
+      expect(fit).toBe(true);
+      const png = await app.evaluate(async ({ BrowserWindow }) => Array.from((await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()));
+      fs.writeFileSync(`${SHOT_DIR}/flaphappy-editor-zoom-${Math.round(zoom*100)}.png`, Buffer.from(png));
+    }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
     await page.screenshot({ path: `${SHOT_DIR}/flaphappy-electron-editor.png` });
     await page.click('.fh-settings .fh-back');
 

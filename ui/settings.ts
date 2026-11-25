@@ -2,6 +2,8 @@ import type { Profile, ValidationResult } from '../core/types';
 import {
   addRow,
   cloneProfile,
+  createBlankProfile,
+  sanitizeId,
   deleteRow,
   exportProfileJson,
   moveLabel,
@@ -29,6 +31,12 @@ export class SettingsView {
   private weightMode: WeightMode = 'manual';
   private previousWeights: Profile['weight_kg'] | null = null;
   private saveAsBtn: HTMLButtonElement | null = null;
+  private profilePicker: HTMLSelectElement | null = null;
+  private newProfileBtn: HTMLButtonElement | null = null;
+  private discardBtn: HTMLButtonElement | null = null;
+  private profileBusy = false;
+  private mappingOpen = false;
+  private displayOptionsOpen = false;
   private validation: ValidationResult | null = null;
   private prefilled: number[] = [];
   private undo: { profile: Profile; what: string } | null = null;
@@ -88,6 +96,7 @@ export class SettingsView {
     if (this.app.unsaved) this.draft = cloneProfile(this.app.unsaved);
     else if (this.app.profile) this.draft = cloneProfile(this.app.profile);
     this.weightMode = this.app.unsaved ? this.app.unsavedWeightMode : weightModeForProfile(this.draft);
+    this.mappingOpen = this.draft?.flaps.length === 0;
     this.dirty = !!this.app.unsaved;
     this.revalidate();
     this.renderAll();
@@ -140,6 +149,7 @@ export class SettingsView {
     this.dirty = false;
     toggleClass(this.saveState, 'dirty', false);
     setText(this.saveState, applied && did ? 'Saved and applied' : applied ? 'Saved' : 'Saved as incomplete. Not applied: fix errors');
+    this.renderProfileBar();
     this.paintSaveState();
     this.updateLive();
   }
@@ -148,6 +158,9 @@ export class SettingsView {
     const canSave = canSaveWeightMode(this.draft, this.weightMode);
     this.saveBtn.disabled = !this.dirty || !canSave;
     if (this.saveAsBtn) this.saveAsBtn.disabled = !canSave;
+    if (this.profilePicker) this.profilePicker.disabled = this.dirty || this.profileBusy;
+    if (this.newProfileBtn) this.newProfileBtn.disabled = this.dirty || this.profileBusy;
+    if (this.discardBtn) this.discardBtn.style.display = this.dirty ? '' : 'none';
     toggleClass(this.saveBtn, 'dirty', this.dirty);
   }
 
@@ -155,6 +168,7 @@ export class SettingsView {
     this.draft = p;
     this.weightMode = weightModeForProfile(p);
     this.previousWeights = null;
+    this.mappingOpen = p?.flaps.length === 0;
     this.dirty = false;
     this.app.setUnsaved(null);
     this.prefilled = [];
@@ -209,6 +223,8 @@ export class SettingsView {
 
   private renderProfileBar(): void {
     const app = this.app;
+    const previousOptions = this.profileBar.querySelector<HTMLDetailsElement>('.fh-display-options');
+    if (previousOptions) this.displayOptionsOpen = previousOptions.open;
     clear(this.profileBar);
     const files = app.host.capabilities.files;
     const unit = app.settings.units === 'kmh' ? 'kmh' : 'kt';
@@ -217,19 +233,78 @@ export class SettingsView {
       h('button', { class: 'fh-btn fh-unitbtn' + (unit === id ? ' on' : ''), type: 'button', onclick: () => this.setUnits(id) }, label);
     const heightBtn = (id: 'ft' | 'm', label: string) =>
       h('button', { class: 'fh-btn fh-unitbtn' + (height === id ? ' on' : ''), type: 'button', onclick: () => this.setHeight(id) }, label);
-    const shown = this.draft ? h('span', { class: 'fh-profilename' }, profileLabel(this.draft.id)) : null;
     const u = app.settings.ui;
     const sw = (cls: string, on: boolean, label: string, set: (v: boolean) => void, enabled = true) =>
       h('label', { class: 'fh-slide' + (enabled ? '' : ' off') }, h('input', { type: 'checkbox', class: cls, 'aria-label': label, checked: on, disabled: !enabled, onchange: (e: Event) => set((e.target as HTMLInputElement).checked) }), h('span', { class: 'fh-slidetrack' }, h('span', { class: 'fh-slideknob' })));
     const row = (label: string, control: HTMLElement) => h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, label), control);
     const toggles = h('div', { class: 'fh-toggles' }, h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Speed'), h('span', { class: 'fh-units' }, unitBtn('kt', 'kt'), unitBtn('kmh', 'km/h'))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Altitude'), h('span', { class: 'fh-units fh-height' }, heightBtn('ft', 'ft'), heightBtn('m', 'm'))), row('Flap transitions', sw('fh-show-transitions', u.show_transitions, 'Flap transitions', (v) => app.setShowTransitions(v))), row('Weight / ballast bar', sw('fh-show-ballast', u.show_ballast, 'Weight / ballast bar', (v) => app.setShowBallast(v))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'AGL bar'), sw('fh-show-agl', u.show_agl, 'AGL bar', (v) => { app.setShowAgl(v); this.renderProfileBar(); }), h('span', { class: 'fh-unitlab fh-beside' + (u.show_agl ? '' : ' off') }, 'Wind speed'), sw('fh-show-wind', u.show_wind, 'Wind speed', (v) => app.setShowWind(v), u.show_agl)));
     this.saveAsBtn = files ? h('button', { class: 'fh-btn fh-saveas', type: 'button', disabled: !canSaveWeightMode(this.draft, this.weightMode), onclick: () => void this.saveAs() }, 'Save As...') as HTMLButtonElement : null;
-    const profile = h('div', { class: 'fh-prow' }, h('label', null, 'Profile'), shown, files ? h('button', { class: 'fh-btn fh-open', type: 'button', onclick: () => void this.openFile() }, 'Open...') : null, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null);
-    this.profileBar.appendChild(toggles);
+    const ids = app.metas.map(m => m.id);
+    if (this.draft && ids.indexOf(this.draft.id) < 0) ids.push(this.draft.id);
+    ids.sort((a, b) => a.localeCompare(b));
+    const customFile = h('input', { type: 'file', accept: '.json,application/json', class: 'fh-custom-file', 'aria-label': 'Custom profile JSON', onchange: (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => this.app.importText(String(reader.result), file.name);
+      reader.readAsText(file);
+      customFile.value = '';
+    } }) as HTMLInputElement;
+    customFile.style.display = 'none';
+    this.profilePicker = h('select', { class: 'fh-in fh-profile-select', 'aria-label': 'Glider profile', disabled: this.dirty || this.profileBusy,
+      onchange: (e: Event) => {
+        const id = (e.target as HTMLSelectElement).value;
+        if (id === ':custom') {
+          (e.target as HTMLSelectElement).value = this.draft?.id ?? '';
+          if (files) void this.openFile(); else customFile.click();
+        } else void this.selectProfile(id);
+      } }, h('option', { value: '', disabled: true }, 'Select a profile'), ...ids.map(id => h('option', { value: id }, profileLabel(id))),
+      h('option', { value: ':custom' }, 'Custom profile…')) as HTMLSelectElement;
+    this.profilePicker.value = this.draft?.id ?? '';
+    const input = h('input', { class: 'fh-in fh-new-name', type: 'text', maxlength: '64', placeholder: 'Profile name', 'aria-label': 'New profile name' }) as HTMLInputElement;
+    const message = h('span', { class: 'fh-hint', role: 'status' });
+    const newForm = h('form', { class: 'fh-new-form', onsubmit: (e: Event) => {
+      e.preventDefault();
+      const id = sanitizeId(input.value);
+      if (!id) { setText(message, 'Enter a profile name.'); return; }
+      if (ids.indexOf(id) >= 0) { setText(message, 'A profile with that name already exists.'); return; }
+      if (this.dirty || this.profileBusy) return;
+      this.setDraft(createBlankProfile(id));
+      this.edited(false);
+      this.table.querySelector<HTMLElement>('.fh-weight-mode')?.focus();
+    } }, input, h('button', { type: 'submit', class: 'fh-btn fh-create' }, 'Create'),
+      h('button', { type: 'button', class: 'fh-btn', onclick: () => { newForm.style.display = 'none'; } }, 'Cancel'), message);
+    newForm.style.display = 'none';
+    this.newProfileBtn = h('button', { type: 'button', class: 'fh-btn fh-new', disabled: this.dirty || this.profileBusy, onclick: () => {
+      newForm.style.display = 'flex'; input.focus();
+    } }, 'New profile') as HTMLButtonElement;
+    this.discardBtn = h('button', { type: 'button', class: 'fh-btn fh-discard-edits', onclick: () => this.discardEdits() }, 'Discard edits') as HTMLButtonElement;
+    this.discardBtn.style.display = this.dirty ? '' : 'none';
+    const profile = h('div', { class: 'fh-profile-top' },
+      h('div', { class: 'fh-subtitle' }, 'Glider profile'),
+      h('div', { class: 'fh-prow' }, this.profilePicker, this.newProfileBtn, this.discardBtn,
+        customFile, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null),
+      newForm);
     this.profileBar.appendChild(profile);
-    if (!this.draft) {
-      this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Open a profile file to start.'));
-    }
+    this.profileBar.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, 'Display preferences'), toggles));
+    if (!this.draft) this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Create a local profile or open a JSON file to start.'));
+  }
+
+  private async selectProfile(id: string): Promise<void> {
+    if (!id || this.dirty || this.profileBusy) return;
+    this.profileBusy = true;
+    this.paintSaveState();
+    await this.app.activate(id, true);
+    this.profileBusy = false;
+    if (this.app.profile?.id === id) this.setDraft(cloneProfile(this.app.profile));
+    else { this.renderProfileBar(); setText(this.saveState, 'Could not open this profile.'); this.paintSaveState(); }
+  }
+
+  private discardEdits(): void {
+    if (!this.dirty) return;
+    this.setDraft(this.app.profile ? cloneProfile(this.app.profile) : null);
+    toggleClass(this.saveState, 'dirty', false);
+    setText(this.saveState, 'Unsaved changes discarded');
   }
 
   private fieldInput(path: string, value: string, opts: { cls?: string; placeholder?: string; type?: string; step?: string; onInput: (text: string) => void; label?: string }): HTMLInputElement {
@@ -254,6 +329,8 @@ export class SettingsView {
   }
 
   private renderTable(): void {
+    const oldMapping = this.table.querySelector<HTMLDetailsElement>('.fh-mapping');
+    if (oldMapping && oldMapping.getAttribute('data-profile') === this.draft?.id) this.mappingOpen = oldMapping.open;
     clear(this.table);
     this.fields = {};
     this.transNames = [];
@@ -261,104 +338,71 @@ export class SettingsView {
     const d = this.draft;
     if (!d) return;
     const n = d.flaps.length;
-
     const unit = this.app.settings.units === 'kmh' ? 'kmh' : 'kt';
+    const left = this.weightMode === 'live' ? 'Light' : 'No ballast';
+    const right = this.weightMode === 'live' ? 'Heavy' : 'Max ballast';
     const storeSpeed = (text: string): number | null => {
-      const n = numberOrNull(text);
-      return n === null ? null : unitToKnots(n, unit);
+      const value = numberOrNull(text);
+      return value === null ? null : unitToKnots(value, unit);
     };
+    const column = (child: HTMLElement | string) => h('div', { class: 'fh-profile-value' }, child);
+    const columns = (title: string, a: string, b: string) => h('div', { class: 'fh-profile-grid fh-profile-head' }, h('div', { class: 'fh-profile-title' }, title), column(a), column(b));
     const speedRow = (title: string, cls: string, nameEl: HTMLElement | null, get: () => { no_ballast_kt: number | null; max_ballast_kt: number | null }, path: string, isEnd: boolean) => {
-      const s = get();
-      return h(
-        'div',
-        { class: 'fh-erow fh-speedrow ' + cls },
-        nameEl ?? h('div', { class: 'fh-rowname' }, title),
-        h('label', { class: 'fh-sub' }, 'Light / None'),
-        this.fieldInput(path + '.no_ballast_kt', formatSpeedField(s.no_ballast_kt, unit), { cls: 'fh-speed', step: '1', onInput: (t) => { get().no_ballast_kt = storeSpeed(t); }, label: title + ' Light weight / No Ballast' }),
-        h('label', { class: 'fh-sub' }, 'Heavy / Max'),
-        this.fieldInput(path + '.max_ballast_kt', formatSpeedField(s.max_ballast_kt, unit), { cls: 'fh-speed', step: '1', placeholder: isEnd ? 'same' : '', onInput: (t) => { get().max_ballast_kt = storeSpeed(t); }, label: title + ' Heavy weight / Max Ballast' }),
-        h('span', { class: 'fh-unit' }, unitLabel(unit)),
-      );
+      const pair = get();
+      return h('div', { class: 'fh-profile-grid ' + cls }, nameEl ?? h('div', { class: 'fh-profile-title' }, title),
+        column(this.fieldInput(path + '.no_ballast_kt', formatSpeedField(pair.no_ballast_kt, unit), { cls: 'fh-speed', step: '1', onInput: (t) => { get().no_ballast_kt = storeSpeed(t); }, label: title + ' ' + left + ' IAS (' + unitLabel(unit) + ')' })),
+        column(this.fieldInput(path + '.max_ballast_kt', formatSpeedField(pair.max_ballast_kt, unit), { cls: 'fh-speed', step: '1', placeholder: isEnd ? 'same' : '', onInput: (t) => { get().max_ballast_kt = storeSpeed(t); }, label: title + ' ' + right + ' IAS (' + unitLabel(unit) + ')' })));
     };
-
+    const ref = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Reference weights and stall IAS'));
     const mode = h('select', { class: 'fh-in fh-weight-mode', 'aria-label': 'Flying weight mode', onchange: (e: Event) => this.selectWeightMode((e.target as HTMLSelectElement).value as WeightMode) },
       h('option', { value: 'manual' }, 'Manual ballast slider'), h('option', { value: 'live' }, 'Live flying weight')) as HTMLSelectElement;
-    // The DOM helper sets value before appending options; select explicitly afterwards.
     mode.value = this.weightMode;
-    this.table.appendChild(h('div', { class: 'fh-erow' }, h('label', { class: 'fh-rowname' }, 'Weight mode'), mode));
-    if (this.weightMode === 'live') this.table.appendChild(h('div', { class: 'fh-erow' },
-      h('label', { class: 'fh-rowname' }, 'Flying weights (kg)'),
-      h('label', { class: 'fh-sub' }, 'Light'),
-      this.fieldInput('weight_kg.light', fmtNum(d.weight_kg.light), { cls: 'fh-speed', step: '1', label: 'Light flying weight (kg)', onInput: (t) => { d.weight_kg.light = numberOrNull(t); } }),
-      h('label', { class: 'fh-sub' }, 'Heavy'),
-      this.fieldInput('weight_kg.heavy', fmtNum(d.weight_kg.heavy), { cls: 'fh-speed', step: '1', label: 'Heavy flying weight (kg)', onInput: (t) => { d.weight_kg.heavy = numberOrNull(t); } })));
-    this.table.appendChild(h('div', { class: 'fh-hint' }, this.weightMode === 'live' ? 'Enter both positive loaded weights (Light below Heavy) before saving. The display uses live MSFS aircraft weight.' : 'No flying weights are required. The display uses the saved manual slider position with the No/Max Ballast speeds.'));
-    this.table.appendChild(speedRow('Min (stall)', 'fh-minrow', null, () => d.vs_min, 'vs_min', true));
-
+    ref.appendChild(h('div', { class: 'fh-erow' }, h('label', { class: 'fh-profile-title' }, 'Weight mode'), mode));
+    ref.appendChild(columns('', left, right));
+    if (this.weightMode === 'live') ref.appendChild(h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, 'Flying weight (kg)'),
+      column(this.fieldInput('weight_kg.light', fmtNum(d.weight_kg.light), { cls: 'fh-speed', step: '1', label: 'Light flying weight (kg)', onInput: (t) => { d.weight_kg.light = numberOrNull(t); } })),
+      column(this.fieldInput('weight_kg.heavy', fmtNum(d.weight_kg.heavy), { cls: 'fh-speed', step: '1', label: 'Heavy flying weight (kg)', onInput: (t) => { d.weight_kg.heavy = numberOrNull(t); } }))));
+    ref.appendChild(speedRow('Stall IAS (' + unitLabel(unit) + ')', 'fh-minrow', null, () => d.vs_min, 'vs_min', true));
+    ref.appendChild(h('div', { class: 'fh-hint' }, this.weightMode === 'live' ? 'Both loaded weights are required; Light must be below Heavy.' : 'No flying weights are required. Set the manual ballast slider in flight.'));
+    this.table.appendChild(ref);
+    const transitions = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Flap transitions — IAS (' + unitLabel(unit) + ')'), columns('From → To', left, right));
+    for (let i = 0; i < n - 1; i++) {
+      const nameEl = h('div', { class: 'fh-profile-title fh-transname' }, this.transitionLabel(d, i));
+      this.transNames.push(nameEl);
+      const trow = speedRow(this.transitionLabel(d, i), 'fh-transition-row fh-trow', nameEl, () => d.transitions[i], `transitions[${i}]`, false);
+      if (this.prefilled.indexOf(i) >= 0) trow.classList.add('prefilled');
+      transitions.appendChild(trow);
+    }
+    if (n < 2) transitions.appendChild(h('div', { class: 'fh-hint' }, 'At least two flap positions are needed for a transition. Edit the flap mapping below.'));
+    if (n > 0) transitions.appendChild(h('div', { class: 'fh-profile-grid fh-vne-row' }, h('div', { class: 'fh-profile-title' }, 'Max (Vne) (' + unitLabel(unit) + ')'),
+      column(this.fieldInput('vne', formatSpeedField(d.vne, unit), { cls: 'fh-speed', step: '1', label: 'Max (Vne)', onInput: (t) => { d.vne = storeSpeed(t); } })), column('')));
+    this.table.appendChild(transitions);
+    const mapping = h('details', { class: 'fh-details fh-mapping', 'data-profile': d.id, open: this.mappingOpen || n === 0 }, h('summary', null, 'Advanced: flap names and simulator positions'),
+      h('div', { class: 'fh-hint' }, 'Define the ordered flap positions. Drag a name to another row; simulator indexes and speed boundaries stay in their existing slots.'));
     d.flaps.forEach((row, i) => {
-      const labelIn = this.fieldInput(`flaps[${i}].label`, row.label, {
-        cls: 'fh-lbl',
-        type: 'text',
-        label: 'Flap ' + (i + 1) + ' label',
-        onInput: (t) => {
-          row.label = t;
-          this.transNames.forEach((el, k) => setText(el, 'Transition ' + transitionName(d, k)));
-        },
-      });
+      const labelIn = this.fieldInput(`flaps[${i}].label`, row.label, { cls: 'fh-lbl', type: 'text', label: 'Flap ' + (i + 1) + ' label', onInput: (t) => {
+        row.label = t;
+        this.transNames.forEach((el, k) => setText(el, this.transitionLabel(d, k)));
+      } });
       labelIn.setAttribute('maxlength', '8');
-      const indexIn = this.fieldInput(`flaps[${i}].handle_index`, row.handle_index === null ? '' : String(row.handle_index), {
-        cls: 'fh-handle',
-        step: '1',
-        label: 'Flap ' + (i + 1) + ' sim index',
-        onInput: (t) => {
-          const n = numberOrNull(t);
-          row.handle_index = n === null ? null : Math.round(n);
-          frow.setAttribute('data-handle', row.handle_index === null ? '' : String(row.handle_index));
-        },
-      });
+      const indexIn = this.fieldInput(`flaps[${i}].handle_index`, row.handle_index === null ? '' : String(row.handle_index), { cls: 'fh-handle', step: '1', label: 'Flap ' + (i + 1) + ' sim index', onInput: (t) => {
+        const value = numberOrNull(t);
+        row.handle_index = value === null ? null : Math.round(value);
+        frow.setAttribute('data-handle', row.handle_index === null ? '' : String(row.handle_index));
+      } });
       indexIn.setAttribute('min', '0');
-      const frow = h(
-        'div',
-        { class: 'fh-erow fh-frow', 'data-handle': row.handle_index === null ? '' : String(row.handle_index), title: 'Drag to reorder' },
-        h('span', { class: 'fh-grip', 'aria-hidden': 'true' }, '\u2630'),
-        h('label', { class: 'fh-sub' }, 'Label'),
-        labelIn,
-        h('label', { class: 'fh-sub' }, 'Sim index'),
-        indexIn,
-        h('span', { class: 'fh-rowbtns' },
-          h('button', { class: 'fh-btn fh-remove', type: 'button', title: 'Remove this flap row', 'aria-label': 'Remove row', onclick: () => this.mutate(deleteRow(d, i), 'Deleted row "' + row.label + '"') }, '\u00d7'),
-        ),
-      );
+      const frow = h('div', { class: 'fh-erow fh-frow', 'data-handle': row.handle_index === null ? '' : String(row.handle_index), title: 'Drag to reorder' }, h('span', { class: 'fh-grip', 'aria-hidden': 'true' }, '☰'), h('label', { class: 'fh-sub' }, 'Label'), labelIn, h('label', { class: 'fh-sub' }, 'Sim index'), indexIn,
+        h('span', { class: 'fh-rowbtns' }, h('button', { class: 'fh-btn fh-remove', type: 'button', title: 'Remove this flap row', 'aria-label': 'Remove row', onclick: () => this.mutate(deleteRow(d, i), 'Deleted row "' + row.label + '"') }, '×')));
       this.armRowDrag(frow, i);
       this.rowEls.push(frow);
-      this.table.appendChild(frow);
-      if (i < n - 1) {
-        const nameEl = h('div', { class: 'fh-rowname fh-transname' }, 'Transition ' + transitionName(d, i));
-        this.transNames.push(nameEl);
-        const trow = speedRow('T' + (i + 1), 'fh-trow', nameEl, () => d.transitions[i], `transitions[${i}]`, false);
-        if (this.prefilled.indexOf(i) >= 0) trow.classList.add('prefilled');
-        this.table.appendChild(h('div', { class: 'fh-twrap' }, trow));
-      }
+      mapping.appendChild(frow);
     });
-    if (n > 0) {
-      this.table.appendChild(h(
-        'div',
-        { class: 'fh-erow fh-speedrow fh-maxrow' },
-        h('div', { class: 'fh-rowname' }, 'Max (Vne)'),
-        h('div', { class: 'fh-vneval' },
-          this.fieldInput('vne', formatSpeedField(d.vne, unit), {
-            cls: 'fh-speed',
-            step: '1',
-            label: 'Max (Vne)',
-            onInput: (t) => {
-              d.vne = storeSpeed(t);
-            },
-          }),
-          h('span', { class: 'fh-unit' }, unitLabel(unit)),
-        ),
-      ));
-    }
-    else this.table.appendChild(h('div', { class: 'fh-hint' }, 'No flap rows: the display shows "no flaps". Add a row to start.'));
+    mapping.appendChild(this.tools);
+    this.table.appendChild(mapping);
+  }
+
+  private transitionLabel(p: Profile, i: number): string {
+    return transitionName(p, i).replace(' -> ', ' → ');
   }
 
   private selectWeightMode(mode: WeightMode): void {
@@ -600,7 +644,7 @@ export class SettingsView {
     this.banner.appendChild(
       h('div', { class: 'fh-importbox' },
         h('div', { class: 'fh-importtitle' }, 'Open "' + profileLabel(p.id) + '"?'),
-        h('div', { class: 'fh-importmsg' }, 'From ' + imp.name + ': ' + summary + '.'),
+        h('div', { class: 'fh-importmsg' }, 'From ' + imp.name + ': ' + summary + '.' + (this.dirty ? ' Accepting will discard your current unsaved edits.' : '')),
         h('div', { class: 'fh-importbtns' },
           h('button', { class: 'fh-btn fh-discard', type: 'button', onclick: () => this.closeImport() }, 'Discard'),
           h('button', { class: 'fh-btn fh-accept', type: 'button', onclick: async () => {

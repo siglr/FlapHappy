@@ -220,3 +220,37 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-dev-title { width: 180px; }
 .fh-devrow .fh-btn { margin-left: 0; padding: 3px 8px; }
 .fh-devstate { color: #b8a77a; }
+
+/* Profiles editor: local profile choice, shared two-column reference and transition table. */
+.fh-profile-top { border: 1px solid #29384b; border-radius: 8px; background: #111b28; padding: 8px 10px; margin-bottom: 8px; }
+.fh-profile-top .fh-subtitle, .fh-profile-card .fh-subtitle { margin-top: 0; }
+.fh-profile-top .fh-prow, .fh-new-form { display: flex; flex-wrap: wrap; align-items: center; }
+.fh-profile-select { min-width: 160px; max-width: 100%; flex: 1 1 200px; }
+.fh-new-form > * { margin: 4px 6px 0 0; }
+.fh-new-name { flex: 1 1 120px; }
+.fh-profile-card { max-width: 720px; border: 1px solid #263345; border-radius: 8px; background: #101a26; margin: 10px 0; padding: 10px; }
+.fh-profile-grid { max-width: 650px; display: flex; align-items: center; padding: 5px 4px; border-top: 1px solid #263345; }
+.fh-profile-title { flex: 1 1 125px; min-width: 0; color: #cfd9e6; font-weight: 600; overflow-wrap: break-word; }
+.fh-profile-value { flex: 0 1 105px; min-width: 60px; text-align: center; margin-left: 8px; }
+.fh-profile-value .fh-speed { width: 100%; max-width: 90px; }
+.fh-profile-head { border-top: 0; color: #9fb0c3; font-size: 12px; font-weight: 600; }
+.fh-profile-head .fh-profile-value { overflow-wrap: break-word; }
+.fh-transition-row.fh-trow { display: flex; width: auto; border-left: none; border-right: none; border-bottom: none; border-radius: 0; margin: 0; background: transparent; }
+.fh-transition-row .fh-transname { color: #8fc2ee; }
+.fh-mapping { margin: 8px 0; }
+.fh-mapping .fh-frow { margin-left: 0; margin-right: 0; }
+@media (max-width: 420px) {
+  .fh-profile-card { padding: 7px; }
+  .fh-profile-grid { padding-left: 0; padding-right: 0; }
+  .fh-profile-value { flex-basis: 80px; margin-left: 5px; min-width: 55px; }
+  .fh-profile-title { flex-basis: 105px; }
+  .fh-profile-select { flex-basis: 100%; }
+}
+
+.fh-sethead { flex-wrap: wrap; }
+.fh-savestate { overflow-wrap: break-word; min-width: 0; }
+.fh-display-options { margin-bottom: 6px; }
+.fh-display-options .fh-toggles { margin: 8px 0; }
+.fh-display-options .fh-optrow { flex-wrap: wrap; }
+.fh-new-name { min-width: 80px; }
+.fh-profile-card .fh-weight-mode { max-width: 100%; }
