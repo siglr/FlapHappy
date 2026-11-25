@@ -53,10 +53,10 @@ export function mountDevPanel(container: HTMLElement, app: App): void {
   }
 
   const flapSel = h('select', { class: 'fh-select fh-dev-flap', 'aria-label': 'Simulated flap handle index', onchange: (e: Event) => { c.flapIndex = Number((e.target as HTMLSelectElement).value); sim.tick(0); } }) as HTMLSelectElement;
-  const count = h('input', { type: 'number', min: '0', max: '16', value: String(c.flapCount), class: 'fh-in fh-dev-count', 'aria-label': 'Simulated flap count', oninput: (e: Event) => { c.flapCount = Math.max(0, Math.round(Number((e.target as HTMLInputElement).value) || 0)); fillFlaps(); sim.tick(0); } }) as HTMLInputElement;
+  const count = h('input', { type: 'number', min: '0', max: '16', value: String(c.flapCount), class: 'fh-in fh-dev-count', 'aria-label': 'Simulated flap count', oninput: (e: Event) => { sim.setFlapCount(Number((e.target as HTMLInputElement).value)); fillFlaps(); sim.tick(0); } }) as HTMLInputElement;
   function fillFlaps(): void {
     while (flapSel.firstChild) flapSel.removeChild(flapSel.firstChild);
-    const n = Math.max(c.flapCount, c.flapIndex + 1, 1);
+    const n = Math.max(c.flapCount, 1);
     for (let i = 0; i < n; i++) {
       const o = h('option', { value: String(i) }, String(i)) as HTMLOptionElement;
       o.selected = i === c.flapIndex;
@@ -64,6 +64,26 @@ export function mountDevPanel(container: HTMLElement, app: App): void {
     }
   }
   fillFlaps();
+  const weightRange=h('input',{type:'range',min:'280',max:'1000',step:'1',value:'280',class:'fh-dev-weight-range','aria-label':'Simulated weight slider (kg)',oninput:(e:Event)=>setWeight(Number((e.target as HTMLInputElement).value))}) as HTMLInputElement;
+  const weightInput=h('input',{type:'number',min:'0',step:'1',class:'fh-in fh-dev-weight',placeholder:'Unavailable',value:c.totalWeightKg===null?'':String(c.totalWeightKg),'aria-label':'Simulated weight (kg)',oninput:(e:Event)=>{const v=(e.target as HTMLInputElement).value;setWeight(v?Number(v):null,false);},onchange:()=>syncWeight()}) as HTMLInputElement;
+  const weightState=h('span',{class:'fh-devstate'});
+  function syncWeight(syncNumber=true):void {
+    const p=app.profile;
+    const values=[p?.weight_kg.light,p?.weight_kg.heavy,c.totalWeightKg].filter((v):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>0);
+    const lo=Math.min(280,...values.map(Math.floor)),hi=Math.max(1000,...values.map(Math.ceil));
+    weightRange.min=String(lo);weightRange.max=String(hi);
+    const available=typeof c.totalWeightKg==='number'&&Number.isFinite(c.totalWeightKg)&&c.totalWeightKg>0;
+    if(available)weightRange.value=String(c.totalWeightKg);else weightRange.value=String(Math.max(lo,Math.min(hi,Number(weightRange.value)||lo)));
+    if(syncNumber)weightInput.value=c.totalWeightKg===null?'':String(c.totalWeightKg);
+    setText(weightState,available?'kg':'kg (unavailable)');
+  }
+  function setWeight(value:number|null,syncNumber=true):void {
+    if(value!==null&&!Number.isFinite(value))return;
+    c.totalWeightKg=value===null?null:Math.max(0,Math.round(value));syncWeight(syncNumber);sim.tick(0);
+  }
+  syncWeight();
+  sim.onProfilePrimed(()=>{count.value=String(c.flapCount);syncWeight();fillFlaps();});
+  const resetCount=h('button',{type:'button',class:'fh-btn fh-dev-reset-count',onclick:()=>{if(sim.primeProfile(app.profile,true))sim.tick(0);}},'Use profile count');
 
   const toggle = (label: string, key: 'connected' | 'inFlight' | 'onGround', cls: string) =>
     h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: cls, checked: c[key], onchange: (e: Event) => { c[key] = (e.target as HTMLInputElement).checked; sim.tick(0); } }), ' ' + label);
@@ -120,10 +140,10 @@ export function mountDevPanel(container: HTMLElement, app: App): void {
     h('div', { class: 'fh-devpanel' },
       h('div', { class: 'fh-devtitle' }, 'DEV: simulated source'),
       row(lab('IAS'), iasRange, iasNum, lab('kt')),
-      row(lab('Simulated weight (kg)'), h('input', { type: 'number', min: '0', step: '1', class: 'fh-in', 'aria-label': 'Simulated weight (kg)', oninput: (e: Event) => { const v = (e.target as HTMLInputElement).value; c.totalWeightKg = v ? Number(v) : null; sim.tick(0); } })),
+      row(lab('Simulated weight'),weightRange,weightInput,weightState),
       row(lab('AGL'), aglRange, aglNum, lab('ft')),
       row(lab('Wind'), windRange, windNum, lab('kt')),
-      row(lab('Flap handle index'), flapSel, lab('count'), count, lab('title'), title),
+      row(lab('Flap handle index'), flapSel, lab('count'), count, resetCount, lab('title'), title),
       row(toggle('connected', 'connected', 'fh-dev-connected'), toggle('in flight (not paused)', 'inFlight', 'fh-dev-inflight'), toggle('on ground', 'onGround', 'fh-dev-ground')),
       row(lab('Inject fault'), ...faultBtns, readouts.fault),
       row(lab('Scenario'), scenSel, h('button', { class: 'fh-btn fh-dev-play', type: 'button', onclick: play }, 'Play'), h('button', { class: 'fh-btn fh-dev-stop', type: 'button', onclick: stop }, 'Stop'), ballastSweepBtn, scenState),

@@ -288,3 +288,12 @@ describe('command line', () => {
     expect(parseCli(['--dev']).dev).toBe(true);
   });
 });
+
+it('Demo aligns only changed selections, clamps the handle and preserves deliberate count and weight faults',()=>{
+ const source=new SimulatedSource(),wide=makeProfile(8,{id:'wide'}),small=makeProfile(3,{id:'small'});source.controls.flapIndex=5;
+ expect(source.primeProfile(wide)).toBe(true);expect(source.snapshot()).toMatchObject({flapCount:8,flapIndex:5,totalWeightKg:400});
+ source.setFlapCount(6);source.controls.totalWeightKg=null;expect(source.primeProfile(wide)).toBe(false);expect(source.snapshot()).toMatchObject({flapCount:6,totalWeightKg:null});
+ expect(source.primeProfile(small)).toBe(true);expect(source.snapshot()).toMatchObject({flapCount:3,flapIndex:2,totalWeightKg:400});
+ source.setFlapCount(1);expect(source.primeProfile(small,true)).toBe(true);expect(source.snapshot()).toMatchObject({flapCount:3,flapIndex:0});
+ const subset=makeProfile(4,{id:'subset'});subset.handle_count=8;expect(source.primeProfile(subset)).toBe(true);expect(source.snapshot().flapCount).toBe(8);
+});

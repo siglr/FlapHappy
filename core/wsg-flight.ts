@@ -52,7 +52,7 @@ export function validateWsgFlight(p:Profile,liveCount?:number|null):ValidationRe
   const fail=(category:'structure'|'speeds'|'other',code:string,message:string)=>issues.push({level:'error',category,code,message});
   const n=p.flaps.length;
   if(!p.wsg||n<2||p.handle_count!==n||p.wsg.hiddenTransitions.length!==n-1||p.transitions.length!==n-1||new Set(p.flaps.map(f=>f.handle_index)).size!==n||p.flaps.some(f=>!f.label||f.handle_index===null||!Number.isInteger(f.handle_index)||f.handle_index<0||f.handle_index>=n))fail('structure','wsg-mapping','Invalid WSG native mapping');
-  if(liveCount!=null&&liveCount!==n)fail('structure','wsg-live-count','Simulator flap positions do not match this WSG variant');
+  if(liveCount!=null&&liveCount!==n)fail('structure','wsg-live-count',`Flap count mismatch: expected ${n}, received ${liveCount}`);
   const weight=p.weight_kg;if(weight.light==null||weight.heavy==null||!isFinite(weight.light)||!isFinite(weight.heavy)||weight.light<=0||weight.heavy<=weight.light)fail('other','wsg-weights','Invalid WSG reference weights');
   const stall=p.vs_min;if((stall.no_ballast_kt===null)!==(stall.max_ballast_kt===null)||[stall.no_ballast_kt,stall.max_ballast_kt].some(x=>x!==null&&(!isFinite(x)||x<=0)))fail('speeds','wsg-stall','Invalid optional stall IAS pair');
   for(const field of ['no_ballast_kt','max_ballast_kt'] as const){let prev=0;for(const t of p.transitions){const x=t[field];if(x===null||!isFinite(x)||x<=prev){fail('speeds','wsg-triggers','Unordered or missing WSG IAS trigger');break;}prev=x;}}

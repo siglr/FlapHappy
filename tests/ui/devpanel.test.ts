@@ -73,3 +73,13 @@ describe('dev control panel drives the simulated feed', () => {
     await page.close();
   });
 });
+
+it('Demo weight slider expands to custom profile anchors and follows numeric input',async()=>{
+ const page=await env.newPage('?seed=demo');try{
+  await page.evaluate(()=>{const a=(window as any).__flapHappy.app,p={...a.profile,id:'custom-extreme',weight_kg:{light:250,heavy:1200}};a.setActiveProfile(p,true);});
+  const slider=page.locator('.fh-dev-weight-range'),weight=page.locator('.fh-dev-weight');expect(await slider.getAttribute('min')).toBe('250');expect(await slider.getAttribute('max')).toBe('1200');
+  await slider.fill('1200');expect(await weight.inputValue()).toBe('1200');await weight.fill('1300');expect(await slider.getAttribute('max')).toBe('1300');expect(await slider.inputValue()).toBe('1300');
+  await weight.fill('');expect(await page.evaluate(()=> (window as any).__flapHappy.sim.controls.totalWeightKg)).toBeNull();await slider.fill('250');expect(await weight.inputValue()).toBe('250');
+  await page.evaluate(()=>{const a=(window as any).__flapHappy.app,p={...a.profile,id:'regular',weight_kg:{light:400,heavy:600}};a.setActiveProfile(p,true);});expect(await slider.getAttribute('min')).toBe('280');expect(await slider.getAttribute('max')).toBe('1000');expect(await weight.inputValue()).toBe('400');
+ }finally{await page.close();}
+});

@@ -347,12 +347,13 @@ export class App {
     this.renderAll();
   }
 
-  /** Keep the simulated L var consistent with the active profile. The flap count stays at the sim's own setting. */
+  /** Keep Demo controls consistent with the selected profile, not each telemetry sample. */
   syncSimToProfile(): void {
     const p = this.profile;
     const sim = this.deps.sim;
     if (!p) return;
     sim.setLvarName(p.current_flap.lvar_name);
+    if(this.usingSim&&sim.primeProfile(p))sim.tick(0);
   }
 
   private onSample(s: SimSample): void {
@@ -402,7 +403,9 @@ export class App {
     this.detectedWsgVariant=state.detectedWsgVariant??null;this.activeProfileSource=state.profileSource??'none';
     this.noProfileMessage=state.noProfileMessage??'';
     const changed=this.profile?.id!==state.profile?.id;
-    this.profile=state.profile;this.validation=this.profile?validateProfile(this.profile,{liveHandleCount:state.sample?.flapCount}):null;
+    this.profile=state.profile;
+    if(this.usingSim&&state.ready){if(this.deps.sim.primeProfile(this.profile))this.deps.sim.tick(0);}
+    this.validation=this.profile?validateProfile(this.profile,{liveHandleCount:state.sample?.flapCount}):null;
     if(this.profile&&!this.profile.wsg)this.settings.last_profile_id=this.profile.id;
     this.ballast={f:state.ballast,unconfirmed:false,restored:false};
     if(changed){this.resolver.reset();this.smoothIas=this.smoothAgl=null;}
@@ -465,15 +468,16 @@ export class App {
       this.detectedWsgVariant=matched?.variantKey??null;
       this.activeWsgMatch=matched;
       const effective=matched?wsgFlightProfile(matched,this.settings.wsg_profile_overrides):null;
+      const validation=effective?validateProfile(effective,{liveHandleCount:this.lastSample?.flapCount}):null;
       if(effective){
         const choice=resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:matched!.variantKey});
-        if(choice.kind==='wsg'&&validateProfile(effective,{liveHandleCount:this.lastSample?.flapCount}).ok){
+        if(choice.kind==='wsg'&&validation?.ok){
           this.activeWsgMatch=matched;this.activeProfileSource='wsg';this.setActiveProfile(effective,true);return;
         }
       }
-      if(matched)this.noProfileMessage=matched.profile
+      if(matched)this.noProfileMessage=validation?.errors.find(e=>e.code==='wsg-live-count')?.message??(matched.profile
         ? 'WSG '+matched.variantKey+': profile or local overrides incompatible. Check Settings.'
-        : 'WSG '+matched.variantKey+': no published flap profile. Choose a custom profile in Settings.';
+        : 'WSG '+matched.variantKey+': no published flap profile. Choose a custom profile in Settings.');
     }catch{/* Offline: use only explicitly configured fallback or unique local title rule. */}
     if(generation!==this.liveSelectionGeneration)return;
     await this.applyLocalChoice(resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:null}),generation);
@@ -860,7 +864,7 @@ export class App {
     setText(this.mainActiveProfile,this.profile?this.profile.id:'None');
     const type=this.profile?.wsg?'WSG.org':this.profile&&this.metas.some(m=>m.id===this.profile?.id&&m.virtual)?'Demo example':this.profile?'Custom profile':'No active profile';
     const source=this.activeProfileSource==='manual'?'Manual selection':this.activeProfileSource==='fallback'?'Fallback':this.activeProfileSource==='assigned'?'Aircraft assignment':this.activeProfileSource==='local'||this.activeProfileSource==='wsg'?'Auto-detected':'';
-    setText(this.mainProfileSource,type+(this.profile&&source?' - '+source:''));
+    setText(this.mainProfileSource,type+(this.profile&&source?' - '+source:'')+(model.incompleteMessage?.startsWith('Flap count mismatch')?' - '+model.incompleteMessage:''));
   }
 
   private paintExternal(): void {

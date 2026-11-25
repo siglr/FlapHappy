@@ -27,7 +27,7 @@ describe('WSG flight display',()=>{
   expect(model(p,70,542.5,2).boundaries?.[1]).toBeCloseTo((light[3]+heavy[3])/2);
   expect(model(p,70,300,2).boundaries).toEqual(wsgBoundaries(p,0));expect(model(p,70,800,2).boundaries).toEqual(wsgBoundaries(p,1));
   expect(model(p,70,null,2).barVisible).toBe(false);expect(model(p,70,500,2,'nodata').currentRow).toBeNull();
-  expect(model(p,70,500,null).currentRow).toBeNull();expect(model(p,70,500,2,'live',0,7).barVisible).toBe(false);
+  expect(model(p,70,500,null).currentRow).toBeNull();const mismatch=model(p,70,500,2,'live',0,7);expect(mismatch.barVisible).toBe(false);expect(mismatch.incompleteMessage).toBe('Flap count mismatch: expected 8, received 7');expect(mismatch.simple.suggestion).toBeNull();
  });
  it('uses explicit IAS limits and local manual ballast, preserves weights and resets to inherited defaults',()=>{
   const key=transitionIdentity(base.bands[4],base.bands[5]);

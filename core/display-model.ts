@@ -149,7 +149,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
   const fraction = interpolationFraction(profile, weight, inp.manualBallast);
   const boundaries = validation.ok && fraction !== null ? (profile.wsg?wsgBoundaries(profile,fraction):effectiveBoundaries(profile, fraction)) : null;
   base.mode = n === 0 ? 'noflaps' : validation.ok ? 'ok' : 'incomplete';
-  if (base.mode === 'incomplete') base.incompleteMessage = 'profile incomplete: open settings';
+  if (base.mode === 'incomplete') base.incompleteMessage = validation.errors.find(e=>e.code==='wsg-live-count')?.message??'profile incomplete: open settings';
   else if (fraction===null && weight.anchorsValid && weight.kg === null) base.incompleteMessage = 'Flying weight unavailable';
 
   // Exclusion merges neighboring cells but never changes the native handle.

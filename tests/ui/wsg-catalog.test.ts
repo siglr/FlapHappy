@@ -95,3 +95,11 @@ it('keeps edited metric tenths and exact untouched knot overrides across save/re
   const saved=await page.evaluate(()=>Object.values((window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF'].transitions)[0]);expect(saved).toMatchObject({lightStartKt:94.6/1.852,heavyStartKt:60.123456});expect(await light.inputValue()).toBe('94.6');
  }finally{await page.close();}
 });
+
+it('the complete WSG default (Show) label fits including dropdown arrow at default and scaled/narrow widths',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:850});try{
+  await page.evaluate(c=>{(window as any).__flapHappy.app.host.getPublishedWsgCatalog=async()=>c;},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  for(const width of [760,506,400]){await page.setViewportSize({width,height:850});const measured=await page.locator('[aria-label="Transition 1 visibility"]').evaluate(el=>{const sel=el as HTMLSelectElement,style=getComputedStyle(sel),ctx=document.createElement('canvas').getContext('2d')!;ctx.font=style.font;return {label:sel.selectedOptions[0].textContent,available:sel.clientWidth,needed:ctx.measureText(sel.selectedOptions[0].textContent??'').width+parseFloat(style.paddingLeft)+parseFloat(style.paddingRight)+24};});expect(measured.label).toBe('WSG default (Show)');expect(measured.available).toBeGreaterThanOrEqual(measured.needed);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
+ }finally{await page.close();}
+});

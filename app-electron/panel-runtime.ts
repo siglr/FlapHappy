@@ -106,7 +106,8 @@ export class PanelRuntime {
       try{
         const match=await this.loadWsgVariant(key);
         const effective=match?wsgFlightProfile(match,settings.wsg_profile_overrides):null;
-        if(!effective||!manual&&!validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}).ok)return null;
+        if(!effective)return null;
+        if(!manual){const validation=validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount});if(!validation.ok){noProfileMessage=validation.errors.find(e=>e.code==='wsg-live-count')?.message??noProfileMessage;return null;}}
         return effective;
       }catch{return null;}
     };
@@ -126,10 +127,11 @@ export class PanelRuntime {
         if(g!==this.generation)return;
         detectedWsgVariant=match?.variantKey??null;
         const effective=match?wsgFlightProfile(match,settings.wsg_profile_overrides):null;
-        const usable=effective&&validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}).ok?effective:null;
+        const validation=effective?validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}):null;
+        const usable=effective&&validation?.ok?effective:null;
         choice=resolveProfileChoice(metas,settings,this.title,this.binding,{pending:false,usableVariantKey:usable?.wsg?.variantKey??null});
         if(choice.kind==='wsg'&&usable){profile=usable;source='wsg';}
-        else if(match)noProfileMessage='WSG '+match.variantKey+': profile or mapping unavailable. Review Profiles.';
+        else if(match)noProfileMessage=validation?.errors.find(e=>e.code==='wsg-live-count')?.message??'WSG '+match.variantKey+': profile or mapping unavailable. Review Profiles.';
       }
       if('id' in choice){id=choice.id;source=choice.kind;}
       if(!profile&&!id&&fallbackWsg&&this.title){

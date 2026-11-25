@@ -3,6 +3,7 @@ import { _electron as electron, type ElectronApplication, type Page } from 'play
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import {createHash} from 'node:crypto';
 import { SHOT_DIR } from './browser-env';
 import { makeProfile, sample } from '../unit/helpers';
 import { exportProfileJson, createBlankProfile } from '../../core/profile';
@@ -344,5 +345,29 @@ it.skipIf(!canRun)('deletes only a saved local profile after named confirmation 
    editor.once('dialog',d=>d.accept());await editor.click('.fh-delete-profile');await waitUntil(()=>!fs.existsSync(path.join(ud,'profiles',id+'.json')));
    await waitUntil(async()=> (await getFeed()).profile===null);expect(fs.existsSync(path.join(ud,'profiles',id+'.json.deleted.bak'))).toBe(true);expect(fs.existsSync(path.join(ud,'profiles',other+'.json'))).toBe(true);
    const saved=settingsOnDisk(ud);expect(saved.profile_selection.manualId).toBeNull();expect(saved.profile_selection.fallbackId).toBeNull();expect(saved.active_by_title).toEqual({other:other});
+ }finally{await app.close();}
+});
+
+it.skipIf(!canRun)('Demo profile selection aligns routed flap count and weight, while an explicit mismatch persists in both display modes',async()=>{
+ const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-demo-count-')),cache=path.join(ud,'wsg-public-cache');fs.mkdirSync(cache);
+ const write=(url:string,raw:unknown)=>fs.writeFileSync(path.join(cache,createHash('sha256').update(url).digest('hex')+'.json'),JSON.stringify(raw));
+ const profiles=['A-DEMO','B-DEMO'].map((key,j)=>{const count=j?3:8;const bands=Array.from({length:count},(_,i)=>({label:String(count-i),handleIndex:count-i-1,lightStartKt:i?45+i*5:0,heavyStartKt:i?50+i*5:0,excludeFromDisplay:false}));return {schema:'wsg.flaphappy.profile/1',variantKey:key,lightWeightKg:400,heavyWeightKg:600,handleCount:count,bands};});
+ write('https://wesimglide.org/api/flap-happy/catalog-v2.json',{schema:'wsg.flaphappy.catalog/2',revision:1,profiles});
+ for(const p of profiles)write('https://wesimglide.org/api/GetGliderReference.php?type='+p.variantKey,{ok:true,schemaVersion:1,status:'matched',glider:{gliderKey:p.variantKey,displayName:p.variantKey,hasFlaps:true,flapCount:p.handleCount,flapLabels:Object.fromEntries(p.bands.map(b=>[String(b.handleIndex+1),b.label])),vneTasKph:280}});
+ const env={...process.env,NODE_USE_ENV_PROXY:'1',HTTP_PROXY:'http://127.0.0.1:9',HTTPS_PROXY:'http://127.0.0.1:9',NO_PROXY:'localhost,127.0.0.1'};
+ const app=await electron.launch({executablePath:electronBin,args:[root,'--no-sandbox','--user-data='+ud,'--source=simulated'],cwd:root,env});
+ try{const main=await app.firstWindow();await main.waitForSelector('.fh-main-controls');await main.locator('.fh-profile-mode').selectOption('manual');await main.waitForFunction(()=>document.querySelector('option[value="WSG:A-DEMO"]'));
+  const select=async(key:string,count:number)=>{await main.locator('.fh-profile-choice').selectOption('WSG:'+key);await waitUntil(async()=>{const s=await getFeed();return s.profile?.wsg?.variantKey===key&&s.sample?.flapCount===count&&s.sample?.totalWeightKg===400;});await main.waitForFunction(n=>document.querySelector<HTMLInputElement>('.fh-dev-count')?.value===String(n),count);};
+  await select('A-DEMO',8);
+  const weight=main.locator('.fh-dev-weight'),slider=main.locator('.fh-dev-weight-range');expect(await slider.getAttribute('min')).toBe('280');expect(await slider.getAttribute('max')).toBe('1000');expect(await weight.inputValue()).toBe('400');
+  await slider.fill('1000');await waitUntil(async()=>(await getFeed()).sample?.totalWeightKg===1000);expect(await weight.inputValue()).toBe('1000');await weight.fill('280');await waitUntil(async()=>(await getFeed()).sample?.totalWeightKg===280);expect(await slider.inputValue()).toBe('280');
+  await weight.fill('');await waitUntil(async()=>(await getFeed()).sample?.totalWeightKg===null);await slider.fill('400');await waitUntil(async()=>(await getFeed()).sample?.totalWeightKg===400);expect(await weight.inputValue()).toBe('400');
+  await main.locator('.fh-dev-flap').selectOption('7');await waitUntil(async()=>(await getFeed()).sample?.flapIndex===7);
+  await main.click('.fh-external-toggle');const panel=await panelPage(app);await panel.waitForFunction(()=>document.querySelectorAll('.fh-cell').length===8);expect(await panel.locator('.fh-profile-alert').isVisible()).toBe(false);
+  await select('B-DEMO',3);await waitUntil(async()=>(await getFeed()).sample?.flapIndex===2);expect(await main.locator('.fh-dev-flap').inputValue()).toBe('2');await panel.waitForFunction(()=>document.querySelectorAll('.fh-cell').length===3);
+  await main.fill('.fh-dev-count','2');await panel.waitForFunction(()=>document.querySelector('.fh-profile-alert')?.textContent?.includes('expected 3, received 2'));await main.waitForTimeout(500);expect((await getFeed()).sample.flapCount).toBe(2);expect(await panel.locator('.fh-cell.recommended').count()).toBe(0);
+  await main.evaluate(()=> (window as any).__flapHappy.app.setSimpleFlap(true));await panel.waitForFunction(()=>document.querySelector('.fh-profile-alert')?.textContent?.includes('expected 3, received 2'));expect(await panel.locator('.fh-profile-alert').isVisible()).toBe(true);
+  await main.locator('.fh-dev-reset-count').click();await waitUntil(async()=>(await getFeed()).sample?.flapCount===3);await panel.waitForFunction(()=>!document.querySelector('.fh-profile-alert')?.getClientRects().length);
+  await select('A-DEMO',8);
  }finally{await app.close();}
 });

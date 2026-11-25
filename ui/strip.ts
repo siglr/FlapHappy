@@ -28,6 +28,7 @@ export class StripView {
   private fill!: HTMLElement;
   private marker!: HTMLElement;
   private barMsg!: HTMLElement;
+  private profileAlert!:HTMLElement;
   private readout!: HTMLElement;
   private aglTrack!: HTMLElement;
   private aglFill!: HTMLElement;
@@ -107,6 +108,7 @@ export class StripView {
     this.panel.appendChild(this.iasRow);
     this.panel.appendChild(this.flapsRow);
     this.panel.appendChild(this.simple.el);
+    this.profileAlert=h('div',{class:'fh-profile-alert',role:'status'});this.panel.appendChild(this.profileAlert);
     this.panel.appendChild(this.tickRow);
     if (this.opts.weightRow) this.panel.appendChild(this.opts.weightRow);
     this.panel.appendChild(this.aglRow);
@@ -172,6 +174,9 @@ export class StripView {
     this.iasRow.style.display = simpleMode ? 'none' : '';
     this.flapsRow.style.display = simpleMode ? 'none' : '';
     this.simple.render(model, simpleMode && model.mode !== 'noflaps');
+    const countMismatch=model.incompleteMessage?.startsWith('Flap count mismatch')===true;
+    const separateMessage=countMismatch||simpleMode&&model.mode==='incomplete';
+    setText(this.profileAlert,separateMessage?model.incompleteMessage??'':'');this.profileAlert.style.display=separateMessage?'block':'none';
     const edges = model.edges;
     const cols = Math.max(n, 1);
 
@@ -218,8 +223,8 @@ export class StripView {
       this.fill.style.display = 'none';
       this.marker.style.display = 'none';
     }
-    setText(this.barMsg, model.barVisible ? '' : model.incompleteMessage ?? (model.mode === 'noflaps' ? '' : ''));
-    toggleClass(this.barMsg, 'on', !model.barVisible && !!model.incompleteMessage);
+    setText(this.barMsg, model.barVisible||separateMessage ? '' : model.incompleteMessage ?? (model.mode === 'noflaps' ? '' : ''));
+    toggleClass(this.barMsg, 'on', !model.barVisible && !separateMessage && !!model.incompleteMessage);
 
     setText(this.readout, model.iasText);
     toggleClass(this.readout, 'dim', model.link !== 'live');

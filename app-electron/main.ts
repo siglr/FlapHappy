@@ -7,7 +7,7 @@ import { SimConnectSource } from '../adapters/electron/simconnect-source';
 import { ReplaySource, parseTraceJsonl } from '../adapters/simulated/replay-source';
 import type { DataSource, HostInfo, SimSample } from '../core/sim';
 import { emptySample } from '../core/sim';
-import { COCKPIT_PORT } from '../core/cockpit';
+import { COCKPIT_PORT, type CockpitState } from '../core/cockpit';
 import type { Profile, Settings, WindowBounds } from '../core/types';
 import { PanelRuntime } from './panel-runtime';
 import { SimulatedSource, type SimControls } from '../adapters/simulated/simulated-source';
@@ -54,6 +54,11 @@ function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+function publishPanelState(state:CockpitState):void {
+  if(source instanceof SimulatedSource&&state.ready&&source.primeProfile(state.profile))source.tick(0);
+  send('panel:active',panelRuntime?.getState()??state);
+}
+
 function desiredSource(settings: Settings): HostInfo['source'] {
   return cli.source === 'simulated' || settings.ui.demo_mode ? 'simulated' : cli.source;
 }
@@ -64,7 +69,8 @@ function startSource(kind: HostInfo['source']): void {
   panelRuntime?.setSourceKind(kind);
   send('sample', emptySample(Date.now()));
   if (kind === 'simulated') {
-    source = new SimulatedSource();
+    const simulated=new SimulatedSource();
+    simulated.primeProfile(panelRuntime?.getState().profile??null);source=simulated;
   } else if (kind === 'replay') {
     if (!cli.trace) {
       send('source:log', 'Replay needs --trace=<file.jsonl>');
@@ -299,7 +305,7 @@ function registerIpc(): void {
   ipcMain.handle('source:setLvar', () => { /* selected profile is owned by the session */ });
   ipcMain.handle('source:simulateControls', (event, controls: SimControls) => {
     if (event.sender === win?.webContents && source instanceof SimulatedSource && controls && typeof controls === 'object') {
-      source.controls = controls;
+      if(controls.profileKey===source.controls.profileKey)Object.assign(source.controls,controls);
     }
   });
 
@@ -339,7 +345,7 @@ if (!haveLock || cli.quit) {
     store = new FileProfileStore(app.getPath('userData'));
     await store.getSettings();
     registerIpc();
-    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),publicWsg.aircraft,state=>send('panel:active',state),desiredSource(await store.getSettings()),publicWsg.variant);
+    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),publicWsg.aircraft,publishPanelState,desiredSource(await store.getSettings()),publicWsg.variant);
     // Do not hold the visible control window for a saved online WSG choice.
     // The session publishes its state once the asynchronous lookup resolves.
     const initialization=panelRuntime.initialize();

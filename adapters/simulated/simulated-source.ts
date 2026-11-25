@@ -1,5 +1,7 @@
 import type { DataSource, SimSample } from '../../core/sim';
 import { emptySample } from '../../core/sim';
+import type { Profile } from '../../core/types';
+import { validWeightAnchors } from '../../core/weight';
 
 export type Fault =
   | 'none'
@@ -32,6 +34,8 @@ export interface SimControls {
   windKt: number;
   flapIndex: number;
   flapCount: number;
+  /** Identity of the selected demo geometry, used to reject delayed controls from a previous profile. */
+  profileKey: string | null;
   fault: Fault;
   title: string;
 }
@@ -47,6 +51,7 @@ export function defaultControls(): SimControls {
     windKt: 12,
     flapIndex: 0,
     flapCount: 6,
+    profileKey: null,
     fault: 'none',
     title: 'Simulated glider',
   };
@@ -67,6 +72,38 @@ export class SimulatedSource implements DataSource {
 
   constructor(clock: () => number = () => Date.now(), private publishControls?: (controls: SimControls) => void) {
     this.clock = clock;
+  }
+
+  private profilePrimed: (()=>void)|null=null;
+  private weightRangeKey:string|null=null;
+  private selectedProfileId:string|null=null;
+
+  onProfilePrimed(cb:()=>void):void { this.profilePrimed=cb; }
+
+  /** Use declared native handle count, not the number of visible labels.
+   * Re-prime on profile/count changes only. Dev count edits on the same
+   * profile remain authoritative until Reset count or another selection. */
+  primeProfile(profile:Profile|null,resetCount=false):boolean {
+    if(!profile){if(this.controls.profileKey===null)return false;this.controls.profileKey=null;this.weightRangeKey=null;this.selectedProfileId=null;this.profilePrimed?.();return true;}
+    const declared=profile.handle_count;
+    const mapped=profile.flaps.reduce((max,f)=>f.handle_index!==null&&Number.isInteger(f.handle_index)&&f.handle_index>=0?Math.max(max,f.handle_index+1):max,0);
+    const count=declared!==null&&Number.isInteger(declared)&&declared>=0?declared:mapped;
+    const key=JSON.stringify([profile.id,count]);const changed=this.controls.profileKey!==key;
+    const aircraftChanged=this.selectedProfileId!==profile.id;this.selectedProfileId=profile.id;
+    const rangeKey=JSON.stringify([profile.id,profile.weight_kg.light,profile.weight_kg.heavy]);const rangeChanged=this.weightRangeKey!==rangeKey;this.weightRangeKey=rangeKey;
+    if(!changed&&!resetCount){if(rangeChanged)this.profilePrimed?.();return false;}
+    this.controls.profileKey=key;
+    this.setFlapCount(count);
+    // A different anchored glider starts at its own Light weight, so a
+    // previously selected custom aircraft's out-of-range weight does not
+    // leak into the new glider. Faults/edits on the same glider are retained.
+    if(aircraftChanged&&validWeightAnchors(profile))this.controls.totalWeightKg=profile.weight_kg.light;
+    this.profilePrimed?.();return true;
+  }
+
+  setFlapCount(n:number):void {
+    this.controls.flapCount=Number.isFinite(n)?Math.max(0,Math.round(n)):0;
+    this.controls.flapIndex=Math.max(0,Math.min(this.controls.flapCount-1,Math.round(this.controls.flapIndex)||0));
   }
 
   start(cb: (s: SimSample) => void): void {
