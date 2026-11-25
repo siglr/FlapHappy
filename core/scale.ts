@@ -8,6 +8,16 @@ export function effectiveSpeed(s: Speed, f: number): number | null {
   return s.no_ballast_kt + clamp01(f) * (mx - s.no_ballast_kt);
 }
 
+/** Display-only lower edge when no measured stall IAS exists. With two or
+ * more visible triggers, extend one median adjacent gap toward zero. */
+export function visualLowerBound(triggers:readonly number[]):number {
+  if(triggers.length<2)return 0;
+  const gaps=triggers.slice(1).map((v,i)=>v-triggers[i]).filter(v=>v>0&&isFinite(v)).sort((a,b)=>a-b);
+  if(!gaps.length)return 0;
+  const m=Math.floor(gaps.length/2),median=gaps.length%2?gaps[m]:(gaps[m-1]+gaps[m])/2;
+  return Math.max(0,triggers[0]-median);
+}
+
 /**
  * Boundary speeds `[Vs, T1..T(N-1), Vne]` (length N + 1) at ballast fraction f, or null when any
  * value is missing or the sequence is not strictly ascending. N = 0 gives `[Vs, Vne]` when both are set.
@@ -15,7 +25,7 @@ export function effectiveSpeed(s: Speed, f: number): number | null {
 export function effectiveBoundaries(p: Profile, f: number): number[] | null {
   const n = p.flaps.length;
   if (p.transitions.length !== Math.max(n - 1, 0)) return null;
-  const specs: Speed[] = [p.vs_min];
+  const specs: Speed[] = [];
   for (let k = 0; k < n - 1; k++) if (!p.transitions[k].exclude_from_display) specs.push(p.transitions[k]);
   specs.push({ no_ballast_kt: p.vne, max_ballast_kt: null });
   const out: number[] = [];
@@ -24,6 +34,9 @@ export function effectiveBoundaries(p: Profile, f: number): number[] | null {
     if (v === null || !isFinite(v)) return null;
     out.push(v);
   }
+  const stall=effectiveSpeed(p.vs_min,f);
+  if(stall===null&&p.vs_min.max_ballast_kt!==null)return null;
+  out.unshift(stall??visualLowerBound(out.slice(0,-1)));
   for (let i = 1; i < out.length; i++) if (out[i] <= out[i - 1]) return null;
   return out;
 }

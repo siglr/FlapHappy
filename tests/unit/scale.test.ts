@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bucketIndex, columnEdges, effectiveBoundaries, effectiveSpeed, mapMarker, nativeWidth, smoothStep, tickLabels } from '../../core/scale';
+import { bucketIndex, columnEdges, effectiveBoundaries, effectiveSpeed, visualLowerBound, mapMarker, nativeWidth, smoothStep, tickLabels } from '../../core/scale';
 import { makeProfile } from './helpers';
 
 describe('ballast interpolation', () => {
@@ -114,4 +114,9 @@ describe('sizing and smoothing', () => {
     const one = smoothStep(60, 80, 300, 300);
     expect(one).toBeCloseTo(60 + 20 * (1 - Math.exp(-1)), 8);
   });
+});
+
+it('uses a display-only median gap lower edge when stall IAS is absent',()=>{
+ expect(visualLowerBound([55,63,73,86])).toBe(45);expect(visualLowerBound([40,55,65])).toBe(27.5);expect(visualLowerBound([40])).toBe(0);expect(visualLowerBound([5,100])).toBe(0);
+ const p=makeProfile(4);p.vs_min={no_ballast_kt:null,max_ballast_kt:null};expect(effectiveBoundaries(p,0)).toEqual([40,52,64,76,p.vne]);
 });

@@ -528,10 +528,10 @@ export class SettingsView {
     const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph);
     const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid'},h('div',{class:'fh-profile-title'},name),...controls);
     box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS (km/h)',ls,rs));
-    box.appendChild(h('div',{class:'fh-hint'},'Stall IAS refers to the detent before the first shown transition and the exact Light/Heavy weights. Changing either requires both personal stall IAS values to enable the warning.'));
-    let stallTouched=false;ls.addEventListener('input',()=>{stallTouched=true;});rs.addEventListener('input',()=>{stallTouched=true;});
+    box.appendChild(h('div',{class:'fh-hint'},'Stall IAS is optional and refers to the most positive landing flap and exact Light/Heavy weights, even if that flap is hidden. Without a valid pair, the lower ribbon edge is only a visual estimate.'));
+    const initialLight=ls.value,initialHeavy=rs.value;
     const confirmStall=h('input',{type:'checkbox',class:'fh-confirm-stall-context'}) as HTMLInputElement;
-    box.appendChild(h('label',{class:'fh-check'},confirmStall,' Confirm saved stall IAS pair for the current weights and first visible flap transition'));
+    const confirmRow=h('label',{class:'fh-check fh-confirm-stall-row',hidden:true},confirmStall,' Confirm these retained stall IAS values apply to the landing flap and selected reference weights.');box.appendChild(confirmRow);
     const upper=number('upperIasKph',null,prior?.upperIasKph);box.appendChild(row('Personal upper IAS limit (km/h)',upper));
     box.appendChild(h('div',{class:'fh-hint'},'Speed overrides below are IAS in km/h; published reference weights are retained even in Manual ballast mode.'));
     const rows=p.bands.slice(1).map((b,i)=>{
@@ -542,8 +542,13 @@ export class SettingsView {
       box.appendChild(row(p.bands[i].label+' → '+b.label,light,heavy));box.appendChild(row('In-flight display',visibility));
       return {id,light,heavy,visibility};
     });
+    const read=(el:HTMLInputElement)=>{if(!el.value.trim())return undefined;const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');return n;};
+    const changedLight=()=>ls.value!==initialLight,changedHeavy=()=>rs.value!==initialHeavy;
+    const needsConfirmation=(context:string|null,light:number|undefined,heavy:number|undefined)=>!!context&&context!==(prior?.stallContext??null)&&light!==undefined&&heavy!==undefined&&(!changedLight()||!changedHeavy());
+    let lastConfirmContext:string|null=null;
+    const updateConfirm=()=>{try{const context=wsgStallContext(p,{mapping:mappingIdentity(p),lightWeightKg:read(l),heavyWeightKg:read(r)}),visible=needsConfirmation(context,read(ls),read(rs));if(!visible||confirmRow.hidden||lastConfirmContext!==context)confirmStall.checked=false;lastConfirmContext=context;confirmRow.hidden=!visible;}catch{confirmRow.hidden=true;confirmStall.checked=false;lastConfirmContext=null;}};
+    for(const input of [l,r,ls,rs])input.addEventListener('input',updateConfirm);updateConfirm();
     const save=h('button',{type:'button',class:'fh-btn fh-wsg-save-adjustments',disabled:current.state!=='ok',onclick:async()=>{
-      const read=(el:HTMLInputElement)=>{if(!el.value.trim())return undefined;const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');return n;};
       try{
         const o:WsgOverrides={mapping:mappingIdentity(p),transitions:{}};
         if(mode.value==='manual'||mode.value==='live')o.ballastMode=mode.value;
@@ -552,8 +557,9 @@ export class SettingsView {
         for(const x of rows){const a=read(x.light),b=read(x.heavy);const t:{lightStartKt?:number;heavyStartKt?:number;excludeFromDisplay?:boolean}={};if(a!==undefined)t.lightStartKt=a/1.852;if(b!==undefined)t.heavyStartKt=b/1.852;if(x.visibility.value!=='inherit')t.excludeFromDisplay=x.visibility.value==='hide';if(Object.keys(t).length)o.transitions![x.id]=t;}
         const context=wsgStallContext(p,o);
         if(o.lightStallIasKph!==undefined||o.heavyStallIasKph!==undefined){
-          if(stallTouched||confirmStall.checked){
-            if(!context)throw Error('A stall pair needs a first visible transition.');
+          if(needsConfirmation(context,vals.lightStallIasKph,vals.heavyStallIasKph)&&!confirmStall.checked){if(prior?.stallContext)o.stallContext=prior.stallContext;}
+          else if(changedLight()||changedHeavy()||confirmStall.checked){
+            if(!context)throw Error('A stall pair needs a landing flap position.');
             if(context!==wsgStallContext(p)&&(o.lightStallIasKph===undefined||o.heavyStallIasKph===undefined))throw Error('Changed stall context: supply both IAS values or leave both empty.');
             o.stallContext=context;
           }else if(prior?.stallContext)o.stallContext=prior.stallContext;

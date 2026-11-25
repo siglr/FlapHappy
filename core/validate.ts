@@ -132,6 +132,7 @@ export function validateProfile(p: Profile, opts: ValidateOptions = {}): Validat
         return;
       }
       const isEnd = i === 0;
+      if(isEnd&&p.vs_min.no_ballast_kt===null&&p.vs_min.max_ballast_kt===null)return;
       const transitionIndex=Number(/^transitions\[(\d+)\]/.exec(b.paths[i].no)?.[1]);
       const label = isEnd ? name : `${name} (${p.flaps[transitionIndex]?.label ?? '?'} -> ${p.flaps[transitionIndex+1]?.label ?? '?'})`;
       const noOk = isNum(b.no[i]) && (b.no[i] as number) > 0;

@@ -157,3 +157,7 @@ Open **Settings > Display** to choose preferred speed and altitude units. These 
 
 ### Desktop control window and Settings
 The main window displays simulator connection, detected aircraft, active profile and source, and whether the external panel is open. **Edit profiles** opens the detailed editor, while **Settings** opens three keyboard-accessible areas: **Display** (global units, display toggles, AGL and appearance), **In-sim Panel** (package and auto-hide), and **Profiles** (glider definitions and local adjustments). Switching between Settings areas does not save or discard profile edits. Panel rendering and data formats are unchanged.
+
+### Ribbon bounds
+
+A supplied stall IAS is interpolated at the active weight/ballast. If no stall IAS pair is supplied, the lower edge is one median adjacent visible-trigger gap below the first trigger (never below zero), or zero with fewer than two triggers. This is display geometry only, not a stall speed or LOW warning. A WSG profile uses the numerical published VNE TAS in the chosen speed unit for the upper ribbon edge whenever it accommodates all visible transitions; it is not an IAS warning or recommendation cutoff. Explicit personal IAS limits retain their warning semantics.

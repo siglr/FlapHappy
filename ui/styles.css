@@ -347,3 +347,5 @@ button, input, select { font-family: inherit; font-size: 14px; }
  .fh-settings-tabbed .fh-arow .fh-wide { max-width:100%; }
  .fh-settings-tabbed .fh-display-options .fh-optrow { flex-wrap:wrap; }
 }
+
+.fh-confirm-stall-row[hidden] { display: none; }

@@ -18,13 +18,14 @@ export interface WsgOverrides {
 export type WsgOverrideMap = Record<string,WsgOverrides>;
 export const mappingIdentity = (p:WsgPublishedProfile):string => JSON.stringify(p.bands.map(b=>[b.handleIndex,b.label]));
 export const transitionIdentity = (from:WsgBand,to:WsgBand):string => JSON.stringify([[from.handleIndex,from.label],[to.handleIndex,to.label]]);
-/** The stall pair refers to the physical detent before the first shown divider. */
+/** The stall pair refers to the most positive physical landing detent,
+ * regardless of which dividers are visible. Old context tokens referring to
+ * another physical position are not silently reinterpreted. */
 export function wsgStallContext(base:WsgPublishedProfile,override?:WsgOverrides):string|null {
-  const index=base.bands.slice(1).findIndex((b,i)=>!(override?.transitions?.[transitionIdentity(base.bands[i],b)]?.excludeFromDisplay??b.excludeFromDisplay));
-  if(index<0)return null;
-  const b=base.bands[index];
-  return JSON.stringify([override?.lightWeightKg??base.lightWeightKg,override?.heavyWeightKg??base.heavyWeightKg,b.handleIndex,b.label]);
+  const landing=base.bands[0];if(!landing)return null;
+  return JSON.stringify([override?.lightWeightKg??base.lightWeightKg,override?.heavyWeightKg??base.heavyWeightKg,landing.handleIndex,landing.label]);
 }
+
 export function resolveWsgOverrides(base:WsgPublishedProfile, all:WsgOverrideMap): {state:'ok';profile:WsgPublishedProfile;ballastMode:'manual'|'live'} | {state:'mapping-changed'|'invalid'} {
   const override = all[base.variantKey];
   if (!override) return {state:'ok',profile:wsgStallContext(base)===null?{...base,lightStallIasKph:null,heavyStallIasKph:null}:base,ballastMode:'live'};

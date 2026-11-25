@@ -65,3 +65,18 @@ describe('default public WSG profile source',()=>{
   await page.close();
  });
 });
+
+it('names the physical landing flap and does not silently rebind a retained legacy stall pair',async()=>{
+ const page=await env.newPage('?seed=demo',{width:1000,height:900});
+ try{
+  await page.evaluate(c=>{const a=(window as any).__flapHappy.app;a.host.getPublishedWsgCatalog=async()=>c;const p=c.profiles[0];a.settings.wsg_profile_overrides[p.variantKey]={mapping:JSON.stringify(p.bands.map(b=>[b.handleIndex,b.label])),stallContext:JSON.stringify([485,600,1,'N']),lightStallIasKph:72,heavyStallIasKph:82};},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  expect(await page.locator('.fh-wsg-adjustments').textContent()).toContain('most positive landing flap');
+  const confirm=page.locator('.fh-confirm-stall-context');expect(await confirm.isVisible()).toBe(true);
+  const read=()=>page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF']);
+  await page.fill('[data-wsg-override="lightStallIasKph"]','73');await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  expect((await read()).stallContext).toBe(JSON.stringify([485,600,1,'N']));
+  await page.locator('.fh-confirm-stall-context').check();await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  expect((await read()).stallContext).toBe(JSON.stringify([485,600,2,'L']));expect(await page.locator('.fh-confirm-stall-context').isVisible()).toBe(false);
+ }finally{await page.close();}
+});
