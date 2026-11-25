@@ -117,7 +117,7 @@ export class SettingsView {
     this.paintSaveState();
     this.app.onModel = () => this.updateLive();
     this.updateLive();
-    if (this.app.settings.wsg_profiles_enabled && this.app.host.getPublishedWsgCatalog) void this.loadWsgCatalog();
+    if (this.app.host.getPublishedWsgCatalog) void this.loadWsgCatalog();
   }
 
   dispose(): void {
@@ -299,8 +299,7 @@ export class SettingsView {
     const profile = h('div', { class: 'fh-profile-top' },
       h('div', { class: 'fh-subtitle' }, 'Glider profile'),
       app.host.getPublishedWsgCatalog ? h('div', { class: 'fh-wsg-source' },
-        h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: 'fh-wsg-enabled', checked: app.settings.wsg_profiles_enabled, onchange: (e: Event) => this.setWsgEnabled((e.target as HTMLInputElement).checked) }), ' Browse WSG.org published profiles (optional)'),
-        app.settings.wsg_profiles_enabled ? h('div', { class: 'fh-hint fh-wsg-status', role: 'status' }, this.wsgStatus || 'Loading published profiles...') : null) : null,
+        h('div', { class: 'fh-hint fh-wsg-status', role: 'status' }, this.wsgStatus || 'Loading published WSG.org profiles...')) : null,
       h('div', { class: 'fh-prow' }, this.profilePicker, this.newProfileBtn, this.discardBtn,
         customFile, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null),
       newForm);
@@ -313,29 +312,15 @@ export class SettingsView {
     return this.wsgPreview ? ':wsg:' + this.wsgPreview.variantKey : this.draft?.id ?? '';
   }
 
-  private setWsgEnabled(on: boolean): void {
-    this.app.settings.wsg_profiles_enabled = on;
-    this.app.persistSoon();
-    this.app.refreshLiveProfileSelection();
-    if (!on) {
-      this.wsgGeneration++;
-      this.wsgCatalog = null;
-      this.wsgPreview = null;
-      this.wsgStatus = '';
-      this.renderAll();
-      this.paintSaveState();
-    } else void this.loadWsgCatalog();
-  }
-
   private async loadWsgCatalog(): Promise<void> {
     const host = this.app.host;
-    if (!this.app.settings.wsg_profiles_enabled || !host.getPublishedWsgCatalog) return;
+    if (!host.getPublishedWsgCatalog) return;
     const generation = ++this.wsgGeneration;
     this.wsgStatus = 'Loading published profiles...';
     this.renderProfileBar();
     try {
-      const catalog = await host.getPublishedWsgCatalog();
-      if (generation !== this.wsgGeneration || !this.app.settings.wsg_profiles_enabled) return;
+      const catalog = await this.app.loadAvailableWsgProfiles();
+      if (generation !== this.wsgGeneration) return;
       this.wsgCatalog = catalog;
       this.wsgStatus = catalog.profiles.length + ' published profiles (revision ' + catalog.revision + ')';
     } catch {

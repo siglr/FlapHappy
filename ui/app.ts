@@ -1,4 +1,5 @@
 import type { CockpitState } from '../core/cockpit';
+import type { WsgCatalog } from '../core/wsg-catalog';
 import type { WsgAircraftMatch } from '../core/wsg-reference';
 import { wsgFlightProfile,wsgBoundaries } from '../core/wsg-flight';
 import type { DataSource, Host, HostInfo, ProfileStore, SimSample } from '../core/sim';
@@ -13,7 +14,6 @@ import { effectiveBoundaries, smoothStep } from '../core/scale';
 import { clamp01, cloneProfile, exportProfileJson, parseProfileJson, profileLabel } from '../core/profile';
 import { defaultSettings } from '../core/settings';
 import { SimulatedSource } from '../adapters/simulated/simulated-source';
-import { PRESETS } from '../profiles';
 import { clear, h, setText, toggleClass } from './dom';
 import { StripView } from './strip';
 import { WeightControl } from './slider';
@@ -77,6 +77,10 @@ export class App {
   private profileEditorWindow: Window|null=null;
   private profileControls: HTMLElement|null=null;
   private profileControlsSignature='';
+  private mainWsgCatalog:WsgCatalog|null=null;
+  private mainWsgStatus='';
+  private catalogGeneration=0;
+  private catalogLoading:Promise<WsgCatalog>|null=null;
   activeProfileSource: 'manual'|'assigned'|'local'|'fallback'|'wsg'|'none' = 'none';
   private unsavedBindingKey: string | null = null;
   get currentAircraftBindingKey(): string | null { return this.liveBindingKey; }
@@ -105,29 +109,9 @@ export class App {
   async init(): Promise<void> {
     this.settings = await this.deps.store.getSettings();
     this.metas = await this.deps.store.list();
-    if (this.deps.info.platform !== 'browser') {
-      // New install: write each built-in once. An id that is already there is left alone.
-      let added = false;
-      for (let i = 0; i < PRESETS.length; i++) {
-        const id = PRESETS[i].id;
-        if (this.metas.some((m) => m.id === id)) continue;
-        await this.deps.store.save({ ...PRESETS[i].profile, source: 'user' });
-        added = true;
-      }
-      if (added) {
-        this.metas = await this.deps.store.list();
-        if (!this.settings.last_profile_id) {
-          const preferred = this.metas.find((m) => m.id === 'as33-18m');
-          if (preferred) {
-            this.settings.last_profile_id = preferred.id;
-            await this.deps.store.setSettings(this.settings);
-    if(this.deps.info.mainWindow)await this.readRuntimeState();
-          }
-        }
-      }
-    }
     this.buildUi();
     void this.refreshPanelUpdateIndicator();
+    if(this.deps.info.mainWindow&&this.host.getPublishedWsgCatalog)void this.loadAvailableWsgProfiles().catch(()=>{});
     this.installDrop();
 
     this.usingSim = this.deps.info.source === 'simulated' || this.settings.ui.demo_mode || !this.deps.realSource;
@@ -227,6 +211,27 @@ export class App {
     }
   }
 
+  clearAvailableWsgProfiles():void{
+    this.catalogGeneration++;this.mainWsgCatalog=null;this.catalogLoading=null;this.mainWsgStatus='';this.paintProfileControls();
+  }
+
+  loadAvailableWsgProfiles():Promise<WsgCatalog>{
+    if(!this.host.getPublishedWsgCatalog)return Promise.reject(Error('WSG profiles are disabled'));
+    if(this.catalogLoading)return this.catalogLoading;
+    const generation=++this.catalogGeneration;
+    this.mainWsgStatus='Loading WSG.org profiles...';this.paintProfileControls();
+    const pending=this.host.getPublishedWsgCatalog().then(catalog=>{
+      if(generation===this.catalogGeneration){
+        this.mainWsgCatalog=catalog;this.mainWsgStatus=catalog.profiles.length+' published WSG profiles';this.paintProfileControls();
+      }
+      return catalog;
+    },error=>{
+      if(generation===this.catalogGeneration){this.mainWsgCatalog=null;this.mainWsgStatus='WSG.org unavailable; local profiles still work.';this.paintProfileControls();}
+      throw error;
+    }).finally(()=>{if(this.catalogLoading===pending)this.catalogLoading=null;});
+    this.catalogLoading=pending;return pending;
+  }
+
   /** The live app's selection controls are deliberately separate from profile definition fields. */
   private paintProfileControls():void {
     if(!this.profileControls)return;
@@ -234,20 +239,29 @@ export class App {
     root.style.display=this.deps.info.mainWindow||this.strictLiveSelection()?'':'none';
     if(!this.deps.info.mainWindow&&!this.strictLiveSelection())return;
     const choice=this.settings.profile_selection;
-    const candidates=this.metas.filter(m=>!m.error&&!m.incomplete);
-    const signature=JSON.stringify([choice,candidates.map(m=>m.id),this.profile?.id,this.activeProfileSource,this.detectedWsgVariant]);
+    const candidates=this.metas.filter(m=>!m.error);
+    const demos=this.usingSim?candidates.filter(m=>m.source==='preset'&&m.id.startsWith('demo-')):[];
+    const locals=candidates.filter(m=>!(m.source==='preset'&&m.id.startsWith('demo-')));
+    const published=this.mainWsgCatalog?.profiles??[];
+    const validPublished=(key:string)=>published.some(p=>('WSG:'+p.variantKey)===key);
+    const canUsePublished=(p:WsgCatalog['profiles'][number])=>!!wsgFlightProfile({variantKey:p.variantKey,displayName:p.variantKey,profile:p},this.settings.wsg_profile_overrides);
+    const signature=JSON.stringify([choice,this.usingSim,candidates.map(m=>[m.id,m.incomplete]),published.map(p=>[p.variantKey,canUsePublished(p)]),this.mainWsgStatus,this.settings.wsg_profiles_enabled,this.profile?.id,this.activeProfileSource,this.detectedWsgVariant]);
     if(signature===this.profileControlsSignature)return;
     this.profileControlsSignature=signature;
     clear(root);
     const select=h('select',{class:'fh-in fh-profile-mode','aria-label':'Profile mode'},h('option',{value:'auto'},'Auto-detect'),h('option',{value:'manual'},'Manual')) as HTMLSelectElement;
     select.value=choice.mode;select.addEventListener('change',()=>this.setProfileSelection(select.value==='manual'?'manual':'auto'));
     const field=choice.mode==='manual'?'manualId':'fallbackId';
-    const picker=h('select',{class:'fh-in fh-profile-choice','aria-label':choice.mode==='manual'?'Active profile':'Fallback profile'},h('option',{value:''},'None'),...candidates.map(m=>h('option',{value:m.id},profileLabel(m.id)))) as HTMLSelectElement;
-    const saved=choice[field];if(saved&&!candidates.some(m=>m.id===saved))picker.appendChild(h('option',{value:saved},saved+' (unavailable)'));
+    const picker=h('select',{class:'fh-in fh-profile-choice','aria-label':choice.mode==='manual'?'Active profile':'Fallback profile'},h('option',{value:''},'None'),
+      h('optgroup',{label:'Custom profiles'},...locals.map(m=>h('option',{value:m.id,disabled:m.incomplete},profileLabel(m.id)+(m.incomplete?' (needs input)':'')))),
+      demos.length?h('optgroup',{label:'Demo examples (offline)'},...demos.map(m=>h('option',{value:m.id},profileLabel(m.id.replace(/^demo-/,''))))):null,
+      published.length?h('optgroup',{label:'WSG.org published profiles'},...published.map(p=>h('option',{value:'WSG:'+p.variantKey,disabled:!canUsePublished(p)},p.variantKey+(canUsePublished(p)?(p.lightStallIasKph===null?' (stall IAS not published)':'')+' (upper IAS not published)':' (needs profile review)')))):null) as HTMLSelectElement;
+    const saved=choice[field];if(saved&&!candidates.some(m=>m.id===saved)&&!validPublished(saved))picker.appendChild(h('option',{value:saved},saved+' (unavailable)'));
     picker.value=saved??'';picker.addEventListener('change',()=>this.setProfileSelection(choice.mode,field,picker.value||null));
     const source=this.profile?this.activeProfileSource==='wsg'?'WSG published profile':this.activeProfileSource==='fallback'?'Fallback profile':this.activeProfileSource==='manual'?'Manual profile':this.activeProfileSource==='assigned'?'Assigned local profile':'Matched local profile':this.detectedWsgVariant?'WSG '+this.detectedWsgVariant+' (no active profile)':'No active profile';
     root.appendChild(h('label',{},'Profile mode',select));root.appendChild(h('label',{},choice.mode==='manual'?'Active profile':'Fallback profile',picker));
     root.appendChild(h('div',{class:'fh-profile-current',role:'status'},source+(this.profile?': '+profileLabel(this.profile.id):'')));
+    if(this.mainWsgStatus)root.appendChild(h('div',{class:'fh-hint fh-picker-wsg-status'},this.mainWsgStatus));
   }
 
   private installDrop(doc:Document=document): void {
@@ -430,7 +444,7 @@ export class App {
 
   private async selectForLiveAircraft(title: string|null, binding: string|null, generation: number, sample: SimSample): Promise<void> {
     const host=this.deps.host;
-    const mightLookup=!!(this.settings.wsg_profiles_enabled&&host.matchWsgAircraft&&sample.aircraftContainer&&sample.wingSpanM);
+    const mightLookup=!!(host.matchWsgAircraft&&sample.aircraftContainer&&sample.wingSpanM);
     const first=resolveProfileChoice(this.metas,this.settings,title,binding,{pending:mightLookup,usableVariantKey:null});
     if(first.kind!=='pending'){await this.applyLocalChoice(first,generation);return;}
     try {
@@ -458,7 +472,7 @@ export class App {
    * a second network dependency during editing. */
   refreshWsgAdjustments(key:string):void {
     if(this.deps.info.mainWindow){void this.readRuntimeState();return;}
-    if(this.activeWsgMatch?.variantKey!==key||!this.settings.wsg_profiles_enabled||this.settings.profile_selection.mode!=='auto')return;
+    if(this.activeWsgMatch?.variantKey!==key||this.settings.profile_selection.mode!=='auto')return;
     if(this.profile&&!this.profile.wsg&&this.activeProfileSource!=='fallback'&&this.activeProfileSource!=='local')return;
     const next=wsgFlightProfile(this.activeWsgMatch,this.settings.wsg_profile_overrides);
     if(next&&validateProfile(next,{liveHandleCount:this.lastSample?.flapCount}).ok){this.activeProfileSource='wsg';this.setActiveProfile(next,false);}
@@ -761,7 +775,7 @@ export class App {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     await this.deps.store.setSettings(this.settings);
-    if(this.deps.info.mainWindow)await this.readRuntimeState();
+    if(this.deps.info.mainWindow){await this.readRuntimeState();await this.refreshMetas();}
   }
 
   // ---------------------------------------------------------------- Rendering

@@ -4,6 +4,8 @@ import type { ProfileStore, SaveOptions } from '../../core/sim';
 import type { Profile, ProfileMeta, Settings } from '../../core/types';
 import { exportProfileJson, normalizeProfile, sanitizeId } from '../../core/profile';
 import { defaultSettings, normalizeSettings } from '../../core/settings';
+import { DEMO_EXAMPLES } from '../../profiles';
+import { cloneProfile } from '../../core/profile';
 import { validateProfile } from '../../core/validate';
 
 /** Write to a temp file, keep one `.bak` of the previous version, then rename over the target. */
@@ -28,6 +30,8 @@ export class FileProfileStore implements ProfileStore {
   readonly profilesDir: string;
   readonly settingsFile: string;
   private settings: Settings | null = null;
+  private demoExamples=false;
+  setDemoExamples(on:boolean):void{this.demoExamples=on;}
 
   constructor(public readonly root: string) {
     this.profilesDir = path.join(root, 'profiles');
@@ -61,12 +65,17 @@ export class FileProfileStore implements ProfileStore {
         out.push({ id, filename: name, incomplete: true, match: [], source: 'user', error: e instanceof Error ? e.message : String(e) });
       }
     }
+    if(this.demoExamples)for(const p of DEMO_EXAMPLES)if(!out.some(m=>m.id===p.id))out.push({id:p.id,filename:p.id+'.json',incomplete:!validateProfile(p).ok,match:p.match.title_contains.slice(),source:'preset'});
     out.sort((a, b) => a.filename.localeCompare(b.filename));
     return out;
   }
 
   async load(id: string): Promise<Profile> {
-    const text = fs.readFileSync(this.fileFor(id), 'utf8');
+    const file=this.fileFor(id);
+    if(this.demoExamples&&!fs.existsSync(file)){
+      const example=DEMO_EXAMPLES.find(p=>p.id===id);if(example)return cloneProfile(example);
+    }
+    const text = fs.readFileSync(file, 'utf8');
     const r = normalizeProfile(JSON.parse(text));
     if (!r.profile) throw new Error(r.errors.join('; '));
     r.profile.id = sanitizeId(id);
@@ -74,7 +83,7 @@ export class FileProfileStore implements ProfileStore {
   }
 
   async save(p: Profile, _opts?: SaveOptions): Promise<void> {
-    atomicWrite(this.fileFor(p.id), exportProfileJson(p));
+    atomicWrite(this.fileFor(p.id), exportProfileJson({...p,source:'user'}));
   }
 
   async remove(id: string): Promise<void> {

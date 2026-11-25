@@ -70,6 +70,9 @@ export class BridgeHost implements Host {
   getPublishedWsgCatalog(): Promise<import('../../core/wsg-catalog').WsgCatalog> {
     return this.bridge.invoke('host:wsgCatalog') as Promise<import('../../core/wsg-catalog').WsgCatalog>;
   }
+  getPublishedWsgVariant(key:string):Promise<import('../../core/wsg-reference').WsgAircraftMatch|null>{
+    return this.bridge.invoke('host:wsgVariant',key) as Promise<import('../../core/wsg-reference').WsgAircraftMatch|null>;
+  }
   matchWsgAircraft(container: string | null, span: number | null): Promise<import('../../core/wsg-reference').WsgAircraftMatch | null> {
     return this.bridge.invoke('host:wsgAircraft', container, span) as Promise<import('../../core/wsg-reference').WsgAircraftMatch | null>;
   }

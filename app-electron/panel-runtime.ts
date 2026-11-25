@@ -32,25 +32,15 @@ export class PanelRuntime {
     private matchWsg?:(container:string|null,span:number|null)=>Promise<WsgAircraftMatch|null>,
     private notifyActive?:(state:CockpitState)=>void,
     kind='simulated',
+    private loadWsgVariant?:(key:string)=>Promise<WsgAircraftMatch|null>,
   ) {this.sourceKind=kind;}
 
   getState = (): CockpitState => this.state;
 
   async initialize(): Promise<void> {
-    const metas = await this.store.list();
-    // Match the desktop first-run library behavior without touching existing profiles.
-    let added = false;
-    for (const preset of PRESETS) {
-      if (metas.some(m => m.id === preset.id)) continue;
-      await this.store.save({ ...preset.profile, source: 'user' });
-      added = true;
-    }
+    this.store.setDemoExamples?.(this.sourceKind==='simulated');
     const settings = await this.store.getSettings();
     this.ballastByProfile = { ...settings.ballast_by_profile };
-    if (!settings.last_profile_id && added) {
-      settings.last_profile_id = 'as33-18m';
-      await this.store.setSettings(settings);
-    }
     await this.refresh();
   }
 
@@ -90,14 +80,32 @@ export class PanelRuntime {
   async refresh(): Promise<void> {
     const g = ++this.generation;
     const settings = await this.settings();
-    const metas = await this.store.list();
+    const allMetas = await this.store.list();
     const strict=this.strictSelection();
+    const metas=this.sourceKind==='simulated'?allMetas:allMetas.filter(m=>!(m.source==='preset'&&m.id.startsWith('demo-')));
     let profile:Profile|null=null;
     let source:CockpitState['profileSource']='none', noProfileMessage:string|undefined,detectedWsgVariant:string|null=null;
     let id:string|null=null;
-    if(strict||settings.profile_selection.mode==='manual'){
+    const selected=settings.profile_selection;
+    const manualWsg=selected.mode==='manual'&&selected.manualId?.startsWith('WSG:');
+    const fallbackWsg=selected.mode==='auto'&&selected.fallbackId?.startsWith('WSG:');
+    const loadExplicit=async(key:string,manual:boolean)=>{
+      if(!this.loadWsgVariant)return null;
+      try{
+        const match=await this.loadWsgVariant(key);
+        const effective=match?wsgFlightProfile(match,settings.wsg_profile_overrides):null;
+        if(!effective||!manual&&!validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}).ok)return null;
+        return effective;
+      }catch{return null;}
+    };
+    if(manualWsg){
+      profile=await loadExplicit(selected.manualId!.slice(4),true);
+      if(g!==this.generation)return;
+      if(profile)source='manual';
+      else noProfileMessage='Selected WSG profile unavailable. Review Profiles or use a local profile.';
+    }else if(strict||settings.profile_selection.mode==='manual'){
       const sample=this.state.sample;
-      const mightLookup=strict&&!!(this.binding&&sample?.aircraftContainer&&sample.wingSpanM&&settings.wsg_profiles_enabled&&this.matchWsg);
+      const mightLookup=strict&&!!(this.binding&&sample?.aircraftContainer&&sample.wingSpanM&&this.matchWsg);
       let choice=resolveProfileChoice(metas,settings,this.title,this.binding,{pending:mightLookup,usableVariantKey:null});
       if(choice.kind==='pending'){
         let match:WsgAircraftMatch|null=null;
@@ -112,8 +120,17 @@ export class PanelRuntime {
         else if(match)noProfileMessage='WSG '+match.variantKey+': profile or mapping unavailable. Review Profiles.';
       }
       if('id' in choice){id=choice.id;source=choice.kind;}
+      if(!profile&&!id&&fallbackWsg&&this.title){
+        profile=await loadExplicit(selected.fallbackId!.slice(4),false);
+        if(g!==this.generation)return;
+        if(profile)source='fallback';
+      }
       if(!profile&&!id&&!noProfileMessage)noProfileMessage=this.title?'No profile for this aircraft. Choose a custom profile in Settings.':'Waiting for MSFS aircraft.';
-    }else{id=selectProfileId(metas,settings,this.title);if(id)source='local';}
+    }else{id=selectProfileId(metas,settings,this.title);if(id)source='local';
+      else if(this.sourceKind==='simulated'){
+        profile={...PRESETS[0].profile,id:'demo-as33-18m'};source='local';
+      }
+    }
     try { if (id) profile = await this.store.load(id); } catch { /* unavailable */ }
     if (g !== this.generation) return;
     const prior = this.state.profile;
@@ -125,7 +142,7 @@ export class PanelRuntime {
     if (oldLvar !== profile?.current_flap.lvar_name) this.setLvar(profile?.current_flap.lvar_name ?? null);
     if (changed && profile) this.notifyBallast(profile.id, ballast);
     this.notifyActive?.(this.state);
-    if (profile && !profile.wsg && settings.last_profile_id !== profile.id) {
+    if (profile && !profile.wsg && metas.some(m=>m.id===profile!.id&&!(m.source==='preset'&&m.id.startsWith('demo-'))) && settings.last_profile_id !== profile.id) {
       const selectedId = profile.id;
       await this.write(async () => {
         if (g !== this.generation) return;

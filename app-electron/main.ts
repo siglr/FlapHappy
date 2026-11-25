@@ -12,7 +12,7 @@ import type { Profile, Settings, WindowBounds } from '../core/types';
 import { PanelRuntime } from './panel-runtime';
 import { SimulatedSource, type SimControls } from '../adapters/simulated/simulated-source';
 import { startPanelServer } from './panel-server';
-import { loadPublishedWsgCatalog, matchPublishedWsgAircraft } from '../adapters/electron/wsg-catalog-source';
+import { CachedWsgSource } from '../adapters/electron/wsg-catalog-source';
 import { installCockpitPanel, removeCockpitPanel, panelInstallStatus } from './panel-install';
 import { normalizePanelDestination } from '../core/panel-install';
 
@@ -32,6 +32,7 @@ app.setName('FlapHappy');
 app.setPath('userData', cli.userData ?? path.join(app.getPath('appData'), 'FlapHappy'));
 
 let store: FileProfileStore;
+const publicWsg=new CachedWsgSource(path.join(app.getPath('userData'),'wsg-public-cache'));
 let win: BrowserWindow | null = null;
 let external: BrowserWindow | null = null;
 let panelAvailable = false;
@@ -238,8 +239,9 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('host:info', () => info());
-  ipcMain.handle('host:wsgCatalog', () => loadPublishedWsgCatalog());
-  ipcMain.handle('host:wsgAircraft', (_e, container: string | null, span: number | null) => matchPublishedWsgAircraft(container, span));
+  ipcMain.handle('host:wsgCatalog', () => publicWsg.catalog());
+  ipcMain.handle('host:wsgVariant',(_e,key:string)=>publicWsg.variant(key));
+  ipcMain.handle('host:wsgAircraft', (_e, container: string | null, span: number | null) => publicWsg.aircraft(container, span));
   ipcMain.handle('host:openJson', async () => {
     const r = await dialog.showOpenDialog(win ?? undefined!, {
       title: 'Open profile',
@@ -337,8 +339,12 @@ if (!haveLock || cli.quit) {
     store = new FileProfileStore(app.getPath('userData'));
     await store.getSettings();
     registerIpc();
-    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),matchPublishedWsgAircraft,state=>send('panel:active',state),desiredSource(await store.getSettings()));
-    await panelRuntime.initialize();
+    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),publicWsg.aircraft,state=>send('panel:active',state),desiredSource(await store.getSettings()),publicWsg.variant);
+    // Do not hold the visible control window for a saved online WSG choice.
+    // The session publishes its state once the asynchronous lookup resolves.
+    const initialization=panelRuntime.initialize();
+    void initialization.catch(e=>console.warn('Profile initialization unavailable',e));
+    await Promise.race([initialization.catch(()=>{}),new Promise<void>(resolve=>setTimeout(resolve,250))]);
     try {
       await startPanelServer({
         root: path.join(__dirname, 'renderer'),

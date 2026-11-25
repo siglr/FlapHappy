@@ -1,7 +1,7 @@
 import as3318 from './as33-18m.json';
 import as3315 from './as33-15m.json';
 import js3 from './js3.json';
-import { normalizeProfile } from '../core/profile';
+import { cloneProfile, normalizeProfile } from '../core/profile';
 import type { Profile } from '../core/types';
 
 export interface Preset {
@@ -26,3 +26,6 @@ export const PRESETS: Preset[] = [
 export function presetById(id: string): Preset | undefined {
   return PRESETS.find((p) => p.id === id);
 }
+
+/** Demo examples are virtual, never seeded into the personal profile folder. */
+export const DEMO_EXAMPLES:Profile[]=PRESETS.map(p=>({...cloneProfile(p.profile),id:'demo-'+p.id,source:'preset',notes:'DEMO ONLY - '+p.profile.notes}));

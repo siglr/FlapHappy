@@ -59,6 +59,7 @@ export interface SaveOptions {
 }
 
 export interface ProfileStore {
+  setDemoExamples?(on:boolean):void;
   list(): Promise<ProfileMeta[]>;
   load(id: string): Promise<Profile>;
   save(p: Profile, opts?: SaveOptions): Promise<void>;
@@ -93,6 +94,7 @@ export interface Host {
   info(): Promise<HostInfo>;
   openJson(): Promise<string | null>;
   getPublishedWsgCatalog?(): Promise<import('./wsg-catalog').WsgCatalog>;
+  getPublishedWsgVariant?(key:string):Promise<import('./wsg-reference').WsgAircraftMatch|null>;
   matchWsgAircraft?(container: string | null, span: number | null): Promise<import('./wsg-reference').WsgAircraftMatch | null>;
   saveJson(name: string, text: string): Promise<boolean>;
   setAlwaysOnTop(on: boolean): void;

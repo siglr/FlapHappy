@@ -61,17 +61,17 @@ describe('main-process panel session', () => {
     expect((await runtime.settings()).ballast_by_profile[p.id]).toBe(0.75);
   });
 
-  it('seeds only missing built-in profiles on first run', async () => {
+  it('seeds only labeled Demo fixtures and preserves existing copies', async () => {
     const store = new MemoryProfileStore();
     const runtime = new PanelRuntime(store, () => {}, () => {});
     await runtime.initialize();
-    expect((await store.list()).map(p => p.id).sort()).toEqual(['as33-15m','as33-18m','js3']);
-    expect(runtime.getState()).toMatchObject({ ready: true, profile: { id: 'as33-18m' }, sample: null });
-    const original = await store.load('as33-18m');
+    expect((await store.list()).map(p => p.id).sort()).toEqual(['demo-as33-15m','demo-as33-18m','demo-js3']);
+    expect(runtime.getState()).toMatchObject({ ready: true, profile: { id: 'demo-as33-18m' }, sample: null });
+    const original = await store.load('demo-as33-18m');
     original.notes = 'existing fixture';
     await store.save(original);
     await runtime.initialize();
-    expect((await store.load('as33-18m')).notes).toBe('existing fixture');
+    expect((await store.load('demo-as33-18m')).notes).toBe('existing fixture');
   });
   it('owns strict live matching and local WSG override/reset for both hosts, rejecting stale match results',async()=>{
     const local=makeProfile(2,{id:'local'});const store=new MemoryProfileStore([local]);const settings=await store.getSettings();settings.last_profile_id=local.id;settings.wsg_profiles_enabled=true;await store.setSettings(settings);
