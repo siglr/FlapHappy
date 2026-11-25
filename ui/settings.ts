@@ -360,17 +360,23 @@ export class SettingsView {
     if (!id || this.dirty || this.profileBusy) return;
     this.profileBusy = true;
     this.paintSaveState();
-    await this.app.activate(id, true);
-    this.profileBusy = false;
-    if (this.app.profile?.id === id) this.setDraft(cloneProfile(this.app.profile));
-    else { this.renderProfileBar(); setText(this.saveState, 'Could not open this profile.'); this.paintSaveState(); }
+    try{
+      // The editor can read/edit a saved local profile even with no connected
+      // aircraft. Only the active selection policy determines flight activation.
+      const local=await this.app.store.load(id);
+      await this.app.activate(id,true);
+      this.setDraft(cloneProfile(local));
+    }catch{
+      this.renderProfileBar();setText(this.saveState,'Could not open this profile.');
+    }finally{this.profileBusy=false;this.paintSaveState();}
   }
 
-  private discardEdits(): void {
-    if (!this.dirty) return;
-    this.setDraft(this.app.profile && !this.app.profile.wsg ? cloneProfile(this.app.profile) : null);
-    toggleClass(this.saveState, 'dirty', false);
-    setText(this.saveState, 'Unsaved changes discarded');
+  private async discardEdits():Promise<void> {
+    if(!this.dirty)return;
+    let saved:Profile|null=null;
+    if(this.draft){try{saved=await this.app.store.load(this.draft.id);}catch{/* new unsaved profile */}}
+    this.setDraft(saved?cloneProfile(saved):this.app.profile&&!this.app.profile.wsg?cloneProfile(this.app.profile):null);
+    toggleClass(this.saveState,'dirty',false);setText(this.saveState,'Unsaved changes discarded');
   }
 
   private fieldInput(path: string, value: string, opts: { cls?: string; placeholder?: string; type?: string; step?: string; onInput: (text: string) => void; label?: string }): HTMLInputElement {

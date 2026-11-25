@@ -199,6 +199,20 @@ describe('settings editor: row rules, validation, undo', () => {
 });
 
 describe('profile library: presets, import and export', () => {
+  it('can open and edit a local profile when there is no active aircraft selection',async()=>{
+    const page=await env.newPage('?seed=demo',{width:1000,height:900});
+    await page.evaluate(()=>{const a=(window as any).__flapHappy.app;a.profile=null;a.activate=async()=>{};});
+    await page.click('.fh-cog');await page.waitForSelector('.fh-profile-select');await page.selectOption('.fh-profile-select','js3');
+    await page.waitForSelector('[data-path="vs_min.no_ballast_kt"]');
+    expect(await page.locator('[data-path="vs_min.no_ballast_kt"]').isEnabled()).toBe(true);
+    expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile)).toBeNull();
+    const before=await page.locator('[data-path="vs_min.no_ballast_kt"]').inputValue();
+    await page.fill('[data-path="vs_min.no_ballast_kt"]','45');await page.click('.fh-discard-edits');
+    await page.waitForFunction(v=>(document.querySelector('[data-path="vs_min.no_ballast_kt"]') as HTMLInputElement)?.value===v,before);
+    expect(await page.locator('.fh-profile-select').inputValue()).toBe('js3');
+    await page.close();
+  });
+
   it('lists local profiles at the top and prevents switching away from unsaved changes', async () => {
     const page = await env.newPage('?seed=demo', { width: 1100, height: 900 });
     await page.click('.fh-cog');
