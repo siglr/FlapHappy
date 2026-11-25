@@ -6,7 +6,7 @@ import { CurrentFlapResolver, type CurrentFlap } from '../core/flapmap';
 import { buildDisplayModel, deriveLink, type DisplayModel } from '../core/display-model';
 import { canSaveWeightMode, interpolationFraction, liveWeight, profileForWeightMode, usesManualBallast, validWeightAnchors, weightModeForProfile, type WeightMode } from '../core/weight';
 import { initialBallast, type BallastState } from '../core/ballast';
-import { selectProfileId } from '../core/select';
+import { selectLiveProfileId, selectProfileId } from '../core/select';
 import { effectiveBoundaries, smoothStep } from '../core/scale';
 import { clamp01, cloneProfile, exportProfileJson, parseProfileJson, profileLabel } from '../core/profile';
 import { defaultSettings } from '../core/settings';
@@ -64,6 +64,13 @@ export class App {
   /** In-memory editor intent; only the anchors are persisted in a profile file. */
   unsavedWeightMode: WeightMode = 'manual';
   private lastTitle: string | null = null;
+  private liveBindingKey: string | null = null;
+  private liveSelectionGeneration = 0;
+  private noProfileMessage = '';
+  detectedWsgVariant: string | null = null;
+  private unsavedBindingKey: string | null = null;
+  get currentAircraftBindingKey(): string | null { return this.liveBindingKey; }
+  get draftAircraftBindingKey(): string | null { return this.unsavedBindingKey; }
   private manualPick = false;
   private pendingImport: ImportDraft | null = null;
 
@@ -111,11 +118,10 @@ export class App {
     this.buildUi();
     this.installDrop();
 
-    const id = selectProfileId(this.metas, this.settings, null);
+    this.usingSim = this.deps.info.source === 'simulated' || this.settings.ui.demo_mode || !this.deps.realSource;
+    const id = this.strictLiveSelection() ? null : selectProfileId(this.metas, this.settings, null);
     if (id) await this.activate(id, false);
     else this.renderAll();
-
-    this.usingSim = this.deps.info.source === 'simulated' || this.settings.ui.demo_mode || !this.deps.realSource;
     this.startSource();
     this.applyHostSettings();
     window.flapHappyBridge?.on('panel:ballast', (value) => {
@@ -123,7 +129,7 @@ export class App {
       if (change?.profileId === this.profile?.id && typeof change.f === 'number') this.setManualBallast(change.f, true);
     });
     setInterval(() => this.renderAll(), 500);
-    if (!this.profile) this.openSettings();
+    if (!this.profile && !this.strictLiveSelection()) this.openSettings();
   }
 
   // ---------------------------------------------------------------- UI shell
@@ -208,6 +214,11 @@ export class App {
     this.smoothIas = null;
     this.smoothAgl = null;
     this.lastSample = null;
+    this.lastTitle = null;
+    this.liveBindingKey = null;
+    this.liveSelectionGeneration++;
+    this.manualPick = false;
+    if (this.strictLiveSelection()) this.clearLiveProfile('Waiting for MSFS aircraft.');
     if (this.usingSim) {
       this.syncSimToProfile();
       d.sim.start((s) => this.onSample(s));
@@ -237,7 +248,17 @@ export class App {
     const now = Date.now();
     this.lastSample = s;
     this.lastRx = this.deps.info.source === 'replay' && !this.usingSim ? now : s.t;
-    if (s.connected && s.aircraftTitle && s.aircraftTitle !== this.lastTitle) {
+    if (this.strictLiveSelection()) {
+      const title = s.connected && s.aircraftTitle?.trim() ? s.aircraftTitle : null;
+      const binding = title ? this.bindingForSample(s, title) : null;
+      if (binding !== this.liveBindingKey) {
+        this.lastTitle = title;
+        this.liveBindingKey = binding;
+        const generation = ++this.liveSelectionGeneration;
+        this.clearLiveProfile(title ? 'No profile for this aircraft. Choose a custom profile in Settings.' : 'Waiting for MSFS aircraft.');
+        if (title && binding) void this.selectForLiveAircraft(title, binding, generation, s);
+      }
+    } else if (s.connected && s.aircraftTitle && s.aircraftTitle !== this.lastTitle) {
       this.lastTitle = s.aircraftTitle;
       void this.autoSelectForTitle(s.aircraftTitle);
     }
@@ -256,6 +277,55 @@ export class App {
     this.renderAll();
   }
 
+  private strictLiveSelection(): boolean {
+    return !this.usingSim && this.deps.info.source === 'simconnect';
+  }
+
+  private bindingForSample(s: SimSample, title: string): string {
+    const span = s.wingSpanM;
+    return s.aircraftContainer && typeof span === 'number' && isFinite(span) && span > 0
+      ? JSON.stringify([title, s.aircraftContainer.toLowerCase(), Math.round(span * 10) / 10]) : title;
+  }
+
+  refreshLiveProfileSelection(): void {
+    if (!this.strictLiveSelection() || !this.lastTitle || !this.liveBindingKey || !this.lastSample) return;
+    const generation = ++this.liveSelectionGeneration;
+    if (!this.settings.wsg_profiles_enabled) this.detectedWsgVariant = null;
+    if (!this.profile) this.noProfileMessage = 'No profile for this aircraft. Choose a custom profile in Settings.';
+    void this.selectForLiveAircraft(this.lastTitle, this.liveBindingKey, generation, this.lastSample);
+    this.renderAll();
+  }
+
+  private clearLiveProfile(message: string): void {
+    this.profile = null;
+    this.validation = null;
+    this.noProfileMessage = message;
+    this.detectedWsgVariant = null;
+    this.resolver.reset();
+    this.deps.realSource?.setLvarName?.(null);
+    this.smoothIas = this.smoothAgl = null;
+    this.renderAll();
+  }
+
+  private async selectForLiveAircraft(title: string, binding: string, generation: number, sample: SimSample): Promise<void> {
+    const id = selectLiveProfileId(this.metas, this.settings, title, binding);
+    if (id && this.profile?.id !== id) await this.activate(id, false, generation);
+    if (generation !== this.liveSelectionGeneration) return;
+    const override = this.settings.active_by_title[binding] ?? this.settings.active_by_title[title];
+    if (override && id === override) return; // deliberate local binding always wins
+    const host = this.deps.host;
+    if (!this.settings.wsg_profiles_enabled || !host.matchWsgAircraft || !sample.aircraftContainer || !sample.wingSpanM) return;
+    try {
+      const matched = await host.matchWsgAircraft(sample.aircraftContainer, sample.wingSpanM);
+      if (generation !== this.liveSelectionGeneration || binding !== this.liveBindingKey) return;
+      this.detectedWsgVariant = matched?.variantKey ?? null;
+      if (matched && !this.profile) this.noProfileMessage = matched.profile
+        ? 'WSG ' + matched.variantKey + ': published profile not yet usable in flight. Choose a local profile in Settings.'
+        : 'WSG ' + matched.variantKey + ': no published flap profile. Choose a custom profile in Settings.';
+    } catch { /* Offline or unverifiable reference: keep the local/no-profile state. */ }
+    this.renderAll();
+  }
+
   private async autoSelectForTitle(title: string): Promise<void> {
     if (this.settingsView) return;
     const id = selectProfileId(this.metas, this.settings, title);
@@ -271,25 +341,31 @@ export class App {
   }
 
   /** Make a stored profile the active one. `manual` remembers the choice for the current aircraft title. */
-  async activate(id: string, manual: boolean): Promise<void> {
+  async activate(id: string, manual: boolean, generation?: number): Promise<void> {
+    const binding = this.liveBindingKey;
+    if (manual && this.strictLiveSelection()) ++this.liveSelectionGeneration;
     let p: Profile;
     try {
       p = await this.deps.store.load(id);
     } catch {
       return;
     }
+    if (this.strictLiveSelection() && (binding !== this.liveBindingKey || (generation !== undefined && generation !== this.liveSelectionGeneration))) return;
     if (manual) {
       this.manualPick = true;
-      if (this.lastTitle) this.settings.active_by_title[this.lastTitle] = id;
+      const key = this.strictLiveSelection() ? binding : this.lastTitle;
+      if (key) this.settings.active_by_title[key] = id;
     }
     this.settings.last_profile_id = id;
-    this.setUnsaved(null);
+    if (manual || !this.strictLiveSelection() || !this.unsaved) this.setUnsaved(null);
     this.setActiveProfile(p, true);
     this.persistSoon();
   }
 
   /** Remember an edited profile until Save. Passing null clears the unsaved copy. */
-  setUnsaved(p: Profile | null, weightMode = weightModeForProfile(p)): void {
+  setUnsaved(p: Profile | null, weightMode = weightModeForProfile(p), intendedBinding = this.liveBindingKey): void {
+    if (!p) this.unsavedBindingKey = null;
+    else if (!this.unsaved || this.unsaved.id !== p.id) this.unsavedBindingKey = intendedBinding;
     this.unsaved = p ? cloneProfile(p) : null;
     this.unsavedWeightMode = p ? weightMode : 'manual';
     this.paintSaveButton();
@@ -310,15 +386,23 @@ export class App {
     const draft = p ?? this.unsaved;
     if (!draft || !canSaveWeightMode(draft, weightMode)) return false;
     const d = profileForWeightMode(draft, weightMode);
+    const intendedBinding = this.unsaved?.id === d.id ? this.unsavedBindingKey : this.liveBindingKey;
     await this.deps.store.save(d);
     await this.refreshMetas();
+    if (this.strictLiveSelection() && (!intendedBinding || intendedBinding !== this.liveBindingKey)) {
+      // Aircraft changed while editing; preserve the file but do not bind it to a different aircraft.
+      this.setUnsaved(null);
+      return false;
+    }
     const newlySelected = this.profile?.id !== d.id;
     const did = this.setActiveProfile(cloneProfile(d), false);
     if (did && newlySelected) {
       // Saving a newly created local profile is an explicit selection, just like the picker.
       // Retain it for this exact aircraft title across restart; never guess an alias.
       this.manualPick = true;
-      if (this.lastTitle) this.settings.active_by_title[this.lastTitle] = d.id;
+      const key = this.strictLiveSelection() ? this.liveBindingKey : this.lastTitle;
+      if (key) this.settings.active_by_title[key] = d.id;
+      if (this.strictLiveSelection()) ++this.liveSelectionGeneration;
     }
     this.settings.last_profile_id = d.id;
     this.persistSoon();
@@ -333,6 +417,7 @@ export class App {
     if (!v.ok && prevValid && this.profile && this.profile.id === p.id) return false;
     const changed = !this.profile || this.profile.id !== p.id || usesManualBallast(this.profile) !== usesManualBallast(p);
     this.profile = p;
+    this.noProfileMessage = '';
     this.validation = v;
     if (changed || restoreBallast) this.ballast = initialBallast(p, this.settings.ballast_by_profile[p.id]);
     this.resolver.reset();
@@ -523,6 +608,7 @@ export class App {
   renderAll(): void {
     if (!this.strip) return;
     const model = this.buildModelFor(this.profile, this.validation);
+    if (!this.profile && this.strictLiveSelection() && this.noProfileMessage) model.incompleteMessage = this.noProfileMessage;
     this.lastModel = model;
     this.slider.render(this.profile, model.weight, this.ballast);
     this.strip.render(model, { profile: this.profile, zoom: this.settings.ui.zoom, showBallast: this.settings.ui.show_ballast, showAgl: this.settings.ui.show_agl, showTransitions: this.settings.ui.show_transitions, showWind: this.settings.ui.show_wind, barShading: this.settings.ui.bar_shading });
@@ -546,6 +632,7 @@ export class App {
     const state: CockpitState = {
       ready: true,
       profile: this.profile,
+      noProfileMessage: this.profile ? undefined : this.noProfileMessage,
       sample: this.lastSample,
       receivedAt: this.lastRx,
       ballast: this.ballast.f,

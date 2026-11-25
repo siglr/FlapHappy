@@ -1,6 +1,7 @@
 import { open, Protocol, SimConnectDataType, SimConnectPeriod, SimConnectConstants } from 'node-simconnect';
 import type { DataSource, SimSample } from '../../core/sim';
 import { emptySample } from '../../core/sim';
+import { aircraftContainer } from '../../core/wsg-reference';
 
 const DEF_MAIN = 1;
 const REQ_MAIN = 1;
@@ -8,6 +9,7 @@ const DEF_LVAR = 2;
 const REQ_LVAR = 2;
 const EV_PAUSE = 1;
 const EV_SIM = 2;
+const EV_AIRCRAFT = 3;
 
 const RECONNECT_MS = 2000;
 const WATCHDOG_MS = 250;
@@ -39,6 +41,8 @@ export class SimConnectSource implements DataSource {
   private lvarName: string | null = null;
   private lastDataAt = 0;
   private stopped = true;
+  private identityRequest = 100;
+  private container: string | null = null;
 
   constructor(private opts: SimConnectOptions = {}) {}
 
@@ -132,10 +136,16 @@ export class SimConnectSource implements DataSource {
     num('TOTAL WEIGHT', 'kilograms');
     num('PLANE ALT ABOVE GROUND', 'feet');
     num('AMBIENT WIND VELOCITY', 'knots');
+    num('WING SPAN', 'meters');
     h.addToDataDefinition(DEF_MAIN, 'TITLE', null, SimConnectDataType.STRING256);
 
     h.subscribeToSystemEvent(EV_PAUSE, 'Pause');
     h.subscribeToSystemEvent(EV_SIM, 'Sim');
+    h.subscribeToSystemEvent(EV_AIRCRAFT, 'AircraftLoaded');
+    this.container = null;
+    const requestIdentity = () => { this.container = null; try { h.requestSystemState(++this.identityRequest, 'AircraftLoaded'); } catch { /* identity unavailable; do not guess */ } };
+    h.on('systemState', state => { if (this.handle === h && state.requestID === this.identityRequest) this.container = aircraftContainer(state.dataString); });
+    h.on('eventFilename', event => { if (this.handle === h && event.clientEventId === EV_AIRCRAFT) requestIdentity(); });
 
     h.requestDataOnSimObject(REQ_MAIN, DEF_MAIN, SimConnectConstants.OBJECT_ID_USER, SimConnectPeriod.SIM_FRAME, 0, 0, FRAME_INTERVAL);
     this.registerLvar(h);
@@ -152,7 +162,9 @@ export class SimConnectSource implements DataSource {
         const weight = r.readFloat64();
         const agl = r.readFloat64();
         const wind = r.readFloat64();
+        const span = r.readFloat64();
         const title = r.readString256();
+        if (title !== this.last.aircraftTitle) requestIdentity();
         this.lastDataAt = Date.now();
         this.last = {
           ...this.last,
@@ -167,6 +179,8 @@ export class SimConnectSource implements DataSource {
           aglFt: agl,
           windKt: wind,
           aircraftTitle: title,
+          aircraftContainer: this.container,
+          wingSpanM: isFinite(span) && span > 0 ? span : null,
           t: Date.now(),
         };
         this.emit(false);

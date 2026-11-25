@@ -9,7 +9,7 @@ import type { DataSource, HostInfo, SimSample } from '../core/sim';
 import type { CockpitState } from '../core/cockpit';
 import type { Profile, Settings } from '../core/types';
 import { startPanelServer } from './panel-server';
-import { loadPublishedWsgCatalog } from '../adapters/electron/wsg-catalog-source';
+import { loadPublishedWsgCatalog, matchPublishedWsgAircraft } from '../adapters/electron/wsg-catalog-source';
 import { installCockpitPanel } from './panel-install';
 
 function windowIcon(): string | undefined {
@@ -128,6 +128,7 @@ function registerIpc(): void {
 
   ipcMain.handle('host:info', () => info());
   ipcMain.handle('host:wsgCatalog', () => loadPublishedWsgCatalog());
+  ipcMain.handle('host:wsgAircraft', (_e, container: string | null, span: number | null) => matchPublishedWsgAircraft(container, span));
   ipcMain.handle('host:openJson', async () => {
     const r = await dialog.showOpenDialog(win ?? undefined!, {
       title: 'Open profile',

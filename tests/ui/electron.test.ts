@@ -279,6 +279,52 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
     }
   });
 
+  it('clears unmatched live aircraft in both hosts and restores only explicit or unambiguous local bindings', async () => {
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-strict-live-'));
+    const a=makeProfile(2,{id:'strict-a'}); a.match.title_contains=['Known A'];
+    const b=makeProfile(2,{id:'strict-b'}); b.match.title_contains=[];
+    fs.mkdirSync(path.join(ud,'profiles'));
+    fs.writeFileSync(path.join(ud,'profiles','strict-a.json'),exportProfileJson(a));
+    fs.writeFileSync(path.join(ud,'profiles','strict-b.json'),exportProfileJson(b));
+    fs.writeFileSync(path.join(ud,'settings.json'),JSON.stringify({schema:'flaphappy.settings/1',last_profile_id:'strict-a'}));
+    const {app,page}=await launch(ud);
+    let browser:import('playwright-core').Browser|undefined;
+    try {
+      const {chromium}=await import('playwright-core');
+      const executablePath=[process.env.CHROME_PATH,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium','/usr/bin/google-chrome'].find(p=>p&&fs.existsSync(p));
+      browser=await chromium.launch({executablePath,args:['--no-sandbox']});
+      const panel=await browser.newPage(); await panel.goto('http://127.0.0.1:47321/panel.html');
+      await page.evaluate(()=>{const w=(window as any).__flapHappy; w.sim.stop(); w.app.usingSim=false; w.app.info.source='simconnect';});
+      const aircraft=async(title:string,container?:string,span?:number)=>page.evaluate(({title,container,span})=>{
+        const a=(window as any).__flapHappy.app;
+        a.onSample({...a.lastSample,connected:true,inFlight:true,aircraftTitle:title,aircraftContainer:container??null,wingSpanM:span??null,totalWeightKg:500,t:Date.now()});
+      },{title,container,span});
+      const noProfile=async()=>{
+        await page.waitForFunction(()=> (window as any).__flapHappy.app.profile===null && document.querySelector('.fh-barmsg')?.textContent?.includes('No profile'));
+        await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('No profile') && !document.querySelector<HTMLElement>('.fh-fit')?.offsetHeight,{}, {polling:100,timeout:10000});
+        expect(await page.locator('.fh-cell.current').count()).toBe(0);
+        expect(await panel.locator('.fh-fit').isVisible()).toBe(false);
+      };
+      await aircraft('Unlisted Alpha'); await noProfile();
+      await page.click('.fh-cog'); await page.waitForSelector('.fh-profile-select');
+      await page.selectOption('.fh-profile-select','strict-b');
+      await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-b');
+      await page.click('.fh-settings .fh-back');
+      await panel.waitForFunction(()=>document.querySelector<HTMLElement>('.fh-fit')?.style.display!=='none');
+      expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.active_by_title['Unlisted Alpha'])).toBe('strict-b');
+      await aircraft('Different unknown'); await noProfile();
+      await aircraft('Unlisted Alpha'); await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-b');
+      await aircraft('Known A'); await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-a');
+      // An exact WSG identification is reported, never a substitute for missing IAS/exclusion support.
+      await page.evaluate(()=>{const a=(window as any).__flapHappy.app; a.settings.wsg_profiles_enabled=true;
+        a.host.matchWsgAircraft=async(container:string,span:number)=>container==='publisher_model'&&span===18?{variantKey:'WSG-EXACT',displayName:'Exact test',profile:{}}:null;});
+      await aircraft('Unknown WSG','publisher_model',18);
+      await page.waitForFunction(()=>document.querySelector('.fh-barmsg')?.textContent?.includes('WSG WSG-EXACT'));
+      await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('WSG WSG-EXACT'),{}, {polling:100,timeout:10000});
+      expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile===null)).toBe(true);
+    } finally { await browser?.close(); await app.close(); fs.rmSync(ud,{recursive:true,force:true}); }
+  });
+
   it('starts in compact mode with no MINI/FULL button and keeps the display', async () => {
     const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-e2e-'));
     const { app, page } = await launch(ud);

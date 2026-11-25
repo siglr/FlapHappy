@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 const INVOKE = new Set([
   'store:list', 'store:load', 'store:save', 'store:remove', 'store:getSettings', 'store:setSettings',
-  'host:info', 'host:wsgCatalog', 'host:openJson', 'host:saveJson', 'host:setAlwaysOnTop', 'host:setOpacity', 'host:setCompact',
+  'host:info', 'host:wsgCatalog', 'host:wsgAircraft', 'host:openJson', 'host:saveJson', 'host:setAlwaysOnTop', 'host:setOpacity', 'host:setCompact',
   'host:openProfilesFolder', 'host:quit', 'host:installPanel', 'source:start', 'source:stop', 'source:setLvar',
   'panel:state',
 ]);

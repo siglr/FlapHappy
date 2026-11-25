@@ -50,6 +50,7 @@ function postBallast(f: number): void {
 function paint(state: CockpitState): void {
   if (!state.ready || !state.profile) {
     unavailable();
+    if (state.ready && state.noProfileMessage) setText(note, state.noProfileMessage);
     return;
   }
   note.style.display = 'none';

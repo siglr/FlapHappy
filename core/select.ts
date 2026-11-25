@@ -13,3 +13,12 @@ export function selectProfileId(metas: ProfileMeta[], settings: Settings, title:
   if (has(settings.last_profile_id)) return settings.last_profile_id;
   return usable.length ? usable[0].id : null;
 }
+
+/** Live aircraft selection never falls back to the last unrelated profile. */
+export function selectLiveProfileId(metas: ProfileMeta[], settings: Settings, title: string, bindingKey = title): string | null {
+  const usable = metas.filter(m => !m.error);
+  const remembered = settings.active_by_title[bindingKey] ?? settings.active_by_title[title];
+  if (remembered && usable.some(m => m.id === remembered)) return remembered;
+  const matching = usable.filter(m => !m.incomplete && profileMatchesTitle(m.match, title));
+  return matching.length === 1 ? matching[0].id : null;
+}

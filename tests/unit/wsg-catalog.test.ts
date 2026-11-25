@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseWsgCatalog } from '../../core/wsg-catalog';
-import { loadPublishedWsgCatalog, WSG_PUBLIC_CATALOG } from '../../adapters/electron/wsg-catalog-source';
+import { loadPublishedWsgCatalog, matchPublishedWsgAircraft, WSG_PUBLIC_CATALOG } from '../../adapters/electron/wsg-catalog-source';
+import { aircraftContainer, aircraftVariantAlias, exactWsgVariant } from '../../core/wsg-reference';
+import { selectLiveProfileId } from '../../core/select';
 import { defaultSettings, normalizeSettings } from '../../core/settings';
 
 const fixture = () => ({schema:'wsg.flaphappy.catalog/2', revision:4, profiles:[{
@@ -37,4 +39,34 @@ describe('anonymous published WSG source', () => {
     expect(normalizeSettings({schema:'flaphappy.settings/1',wsg_profiles_enabled:true}).wsg_profiles_enabled).toBe(true);
     expect(normalizeSettings({schema:'flaphappy.settings/1',wsg_profiles_enabled:'true'}).wsg_profiles_enabled).toBe(false);
   });
+  it('resolves only literal unambiguous container-and-span aliases and confirms the public ordered reference', async () => {
+    expect(aircraftContainer('C:/sim/SimObjects/Airplanes/publisher_model/aircraft.cfg')).toBe('publisher_model');
+    expect(aircraftContainer('C:/unrelated/aircraft.cfg')).toBeNull();
+    expect(aircraftVariantAlias('AS33',18)).toBeNull();
+    expect(aircraftVariantAlias('publisher_model_15m',18)).toBeNull();
+    expect(aircraftVariantAlias('publisher_model',18)).toBe('publisher_model_18m');
+    const rules={ok:true, rules:[{RuleType:'REGEX',Pattern:'^publisher_model_18m',GliderKey:'AS33-18-TEST'}],gliders:[{GliderKey:'AS33-18-TEST'}]};
+    expect(exactWsgVariant('publisher_model_18m',rules)).toBe('AS33-18-TEST');
+    expect(exactWsgVariant('publisher_model_18m-other',rules)).toBeNull();
+    expect(exactWsgVariant('publisher_model_18m',{...rules,rules:[...rules.rules,{RuleType:'EXACT',Pattern:'publisher_model_18m',GliderKey:'OTHER'}]})).toBeNull();
+    const ref={ok:true,schemaVersion:1,status:'matched',glider:{gliderKey:'AS33-18-TEST',displayName:'Test variant',hasFlaps:true,flapCount:3,flapLabels:{'1':'1','2':'N','3':'L'}}};
+    const mock = vi.fn(async (url:string) => new Response(JSON.stringify(url.includes('GetGliderRules')?rules:url.includes('GetGliderReference')?ref:fixture()),{headers:{'content-type':'application/json'}}));
+    expect((await matchPublishedWsgAircraft('publisher_model',18,mock as unknown as typeof fetch))?.profile?.variantKey).toBe('AS33-18-TEST');
+    expect(mock.mock.calls.every(([url])=>!url.includes('TITLE')&&!url.includes('aircraft.cfg'))).toBe(true);
+    const before=mock.mock.calls.length;
+    expect(await matchPublishedWsgAircraft('AS33',18,mock as unknown as typeof fetch)).toBeNull();
+    expect(mock.mock.calls.length).toBe(before);
+    ref.glider.flapLabels['2']='wrong';
+    expect(await matchPublishedWsgAircraft('publisher_model',18,mock as unknown as typeof fetch)).toBeNull();
+  });
+  it('never reuses the last local profile for an unmatched or ambiguous live title', () => {
+    const metas = [{id:'a',match:['Model A'],incomplete:false},{id:'b',match:['both'],incomplete:false},{id:'c',match:['both'],incomplete:false}] as any;
+    const st=defaultSettings(); st.last_profile_id='a';
+    expect(selectLiveProfileId(metas,st,'Unknown')).toBeNull();
+    expect(selectLiveProfileId(metas,st,'Model A')).toBe('a');
+    expect(selectLiveProfileId(metas,st,'both')).toBeNull();
+    st.active_by_title['Unknown']='b';
+    expect(selectLiveProfileId(metas,st,'Unknown')).toBe('b');
+  });
+
 });

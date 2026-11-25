@@ -18,6 +18,9 @@ export interface SimSample {
   flapPercent: number | null;
   lvar: number | null;
   aircraftTitle: string | null;
+  /** Local add-on identity (not a path); optional for older replay files. */
+  aircraftContainer?: string | null;
+  wingSpanM?: number | null;
   /** Timestamp in ms. */
   t: number;
 }
@@ -36,6 +39,8 @@ export function emptySample(t = 0): SimSample {
     flapPercent: null,
     lvar: null,
     aircraftTitle: null,
+    aircraftContainer: null,
+    wingSpanM: null,
     t,
   };
 }
@@ -85,6 +90,7 @@ export interface Host {
   info(): Promise<HostInfo>;
   openJson(): Promise<string | null>;
   getPublishedWsgCatalog?(): Promise<import('./wsg-catalog').WsgCatalog>;
+  matchWsgAircraft?(container: string | null, span: number | null): Promise<import('./wsg-reference').WsgAircraftMatch | null>;
   saveJson(name: string, text: string): Promise<boolean>;
   setAlwaysOnTop(on: boolean): void;
   setOpacity(opacity: number): void;

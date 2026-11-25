@@ -30,6 +30,7 @@ export class SettingsView {
   readonly el: HTMLElement;
   private draft: Profile | null = null;
   private weightMode: WeightMode = 'manual';
+  private draftBindingKey: string | null = null;
   private previousWeights: Profile['weight_kg'] | null = null;
   private saveAsBtn: HTMLButtonElement | null = null;
   private profilePicker: HTMLSelectElement | null = null;
@@ -101,6 +102,7 @@ export class SettingsView {
     if (this.app.unsaved) this.draft = cloneProfile(this.app.unsaved);
     else if (this.app.profile) this.draft = cloneProfile(this.app.profile);
     this.weightMode = this.app.unsaved ? this.app.unsavedWeightMode : weightModeForProfile(this.draft);
+    this.draftBindingKey = this.app.unsaved ? this.app.draftAircraftBindingKey : this.app.currentAircraftBindingKey;
     this.mappingOpen = this.draft?.flaps.length === 0;
     this.dirty = !!this.app.unsaved;
     this.revalidate();
@@ -119,7 +121,7 @@ export class SettingsView {
   dispose(): void {
     this.wsgGeneration++;
     this.endDrag();
-    if (this.dirty && this.draft) this.app.setUnsaved(this.draft, this.weightMode);
+    if (this.dirty && this.draft) this.app.setUnsaved(this.draft, this.weightMode, this.draftBindingKey);
   }
 
   private close(): void {
@@ -140,7 +142,7 @@ export class SettingsView {
     this.renderValidation();
     this.updateLive();
     this.dirty = true;
-    if (this.draft) this.app.setUnsaved(this.draft, this.weightMode);
+    if (this.draft) this.app.setUnsaved(this.draft, this.weightMode, this.draftBindingKey);
     toggleClass(this.saveState, 'dirty', true);
     setText(this.saveState, 'Unsaved');
     this.paintSaveState();
@@ -174,6 +176,7 @@ export class SettingsView {
   private setDraft(p: Profile | null): void {
     this.wsgPreview = null;
     this.draft = p;
+    this.draftBindingKey = this.app.currentAircraftBindingKey;
     this.weightMode = weightModeForProfile(p);
     this.previousWeights = null;
     this.mappingOpen = p?.flaps.length === 0;
@@ -311,6 +314,7 @@ export class SettingsView {
   private setWsgEnabled(on: boolean): void {
     this.app.settings.wsg_profiles_enabled = on;
     this.app.persistSoon();
+    this.app.refreshLiveProfileSelection();
     if (!on) {
       this.wsgGeneration++;
       this.wsgCatalog = null;
@@ -339,6 +343,7 @@ export class SettingsView {
     }
     this.renderProfileBar();
     this.paintSaveState();
+    this.updateLive();
   }
 
   private previewWsg(key: string): void {
@@ -626,6 +631,10 @@ export class SettingsView {
   /** Cheap per-sample update: the live line. */
   updateLive(): void {
     const app = this.app;
+    if (!this.wsgPreview && !this.dirty && !app.profile && app.detectedWsgVariant && this.wsgCatalog?.profiles.some(p => p.variantKey === app.detectedWsgVariant)) {
+      this.previewWsg(app.detectedWsgVariant);
+      return;
+    }
     if (this.wsgPreview) { setText(this.liveLine, 'Published preview only. Local profile remains active.'); return; }
     const d = this.draft;
     const s = app.lastSample;
@@ -636,6 +645,7 @@ export class SettingsView {
       const row = d ? d.flaps.find((r) => r.handle_index === liveIdx) : undefined;
       live = `Live: handle index ${liveIdx}` + (s.flapCount !== null ? ` of ${s.flapCount}` : '') + (row ? ` [flap "${row.label}"]` : '');
     }
+    if (this.draft && this.draftBindingKey !== app.currentAircraftBindingKey && app.currentAircraftBindingKey) live += ' | Aircraft changed since this draft was opened; Save keeps the local file only.';
     setText(this.liveLine, live);
     this.rowEls.forEach((r) => toggleClass(r, 'live', liveIdx !== null && r.getAttribute('data-handle') === String(liveIdx)));
   }

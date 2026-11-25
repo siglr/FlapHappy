@@ -5,6 +5,8 @@ import type { SimSample } from './sim';
 export interface CockpitState {
   ready: boolean;
   profile: Profile | null;
+  /** Current live aircraft has no selected profile; keep cockpit and desktop consistent. */
+  noProfileMessage?: string;
   sample: SimSample | null;
   /** When the desktop app last received `sample`, in ms. */
   receivedAt: number;
