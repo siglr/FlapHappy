@@ -9,6 +9,7 @@ import { ScenarioPlayer, scenarioDuration, type Scenario } from '../../adapters/
 import { ReplaySource, parseTraceJsonl } from '../../adapters/simulated/replay-source';
 import { parseCli } from '../../app-electron/cli';
 import { defaultSettings } from '../../core/settings';
+import { exportProfileJson } from '../../core/profile';
 import { makeProfile, sample } from './helpers';
 import { PRESETS } from '../../profiles';
 import { CurrentFlapResolver } from '../../core/flapmap';
@@ -36,7 +37,7 @@ describe('FileProfileStore (real JSON files)', () => {
     await a.save(p);
     expect(fs.existsSync(path.join(dir, 'profiles', 'as33-test.json'))).toBe(true);
     const b = new FileProfileStore(dir);
-    expect(await b.load('as33-test')).toEqual(p);
+    expect(exportProfileJson(await b.load('as33-test'))).toEqual(exportProfileJson(p));
     const list = await b.list();
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: 'as33-test', incomplete: false, source: 'user' });

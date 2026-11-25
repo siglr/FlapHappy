@@ -559,7 +559,7 @@ export class SettingsView {
       if(!meta.edited||el.value===meta.initial)return meta.original;
       if(!el.value.trim())return undefined;
       const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');
-      return meta.kind==='kg'?n:meta.kind==='kt'?unitToKnots(n,unit):unitToKnots(n,unit)*1.852;
+      return meta.kind==='kg'?n:meta.kind==='kt'?unitToKnots(n,unit):unit==='kmh'?n:n*1.852;
     };
     const l=number('lightWeightKg',p.lightWeightKg,prior?.lightWeightKg), r=number('heavyWeightKg',p.heavyWeightKg,prior?.heavyWeightKg);
     const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph,'kph'), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph,'kph');

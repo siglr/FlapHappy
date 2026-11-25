@@ -15,9 +15,9 @@ export function knotsToMs(kt: number): number {
   return Math.round(kt * KT_TO_MS * 100) / 100;
 }
 
-/** Knots from a saved m/s value, to 0.1 kt. */
+/** Knots from a saved m/s value, without a second quantization. */
 export function msToKnots(ms: number): number {
-  return Math.round(ms * MS_TO_KT * 10) / 10;
+  return ms * MS_TO_KT;
 }
 
 export function knotsToUnit(kt: number, unit: SpeedUnit): number {
@@ -25,8 +25,7 @@ export function knotsToUnit(kt: number, unit: SpeedUnit): number {
 }
 
 export function unitToKnots(value: number, unit: SpeedUnit): number {
-  const kt = unit === 'kmh' ? value / KT_TO_KMH : value;
-  return Math.round(kt * 10) / 10;
+  return unit === 'kmh' ? value / KT_TO_KMH : value;
 }
 
 /** Whole number for the IAS readout, with the unit suffix. */

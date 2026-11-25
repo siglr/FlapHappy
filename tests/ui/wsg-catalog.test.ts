@@ -86,3 +86,12 @@ it('keeps prior speed precision, rounds new edits to a tenth and asks for stall 
   await page.setViewportSize({width:430,height:800});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }finally{await page.close();}
 });
+
+it('keeps edited metric tenths and exact untouched knot overrides across save/reopen',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:850});try{
+  await page.evaluate(c=>{const a=(window as any).__flapHappy.app;a.setSpeedUnit('kmh');a.host.getPublishedWsgCatalog=async()=>c;const p=c.profiles[0];a.settings.wsg_profile_overrides[p.variantKey]={mapping:JSON.stringify(p.bands.map(b=>[b.handleIndex,b.label])),transitions:{[JSON.stringify([[2,'L'],[1,'N']])]:{heavyStartKt:60.123456}}};},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  const light=page.locator('[data-wsg-override="transition 0 Light"]');await light.fill('94.567');expect(await light.inputValue()).toBe('94.6');await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  const saved=await page.evaluate(()=>Object.values((window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF'].transitions)[0]);expect(saved).toMatchObject({lightStartKt:94.6/1.852,heavyStartKt:60.123456});expect(await light.inputValue()).toBe('94.6');
+ }finally{await page.close();}
+});
