@@ -77,6 +77,71 @@ function fhDisconnect(panel) {
     fhNote(panel, false);
 }
 
+// MSFS 2024 Camera Variables: 2 cockpit; 3 chase, 4 fixed on plane,
+// 5 environment, 7 showcase, 8 drone. The SDK describes 9 inconsistently
+// (Waiting in the table, showcase selector in prose); 6 Gameplay is not a
+// named external view. Leave both visible until verified in the simulator.
+var FH_EXTERNAL_CAMERA = { chase: 3, fixed: 4, environment: 5, showcase: 7, drone: 8 };
+function fhIsExternalCamera(state) {
+    return typeof state === 'number' && Object.keys(FH_EXTERNAL_CAMERA).some(function (name) { return FH_EXTERNAL_CAMERA[name] === state; });
+}
+function fhReadCamera() {
+    var sim = window.SimVar;
+    if (!sim || typeof sim.GetSimVarValue !== 'function') return null;
+    try {
+        if (typeof sim.IsReady === 'function' && !sim.IsReady()) return null;
+        var raw = sim.GetSimVarValue('CAMERA STATE', 'Enum');
+        return typeof raw === 'number' && isFinite(raw) && Math.floor(raw) === raw && raw > 0 ? raw : null;
+    } catch (e) { return null; }
+}
+function fhCameraVisibility(panel) {
+    var hidden = panel.panelActive && panel._fhAutoHide === true && fhIsExternalCamera(fhReadCamera());
+    if (panel.ingameUi) panel.ingameUi.classList.toggle('fh-external-hidden', hidden);
+}
+function fhReadPanelSettings(panel, generation) {
+    if (panel._fhSettingsRequest) return;
+    var xhr;
+    try {
+        xhr = new XMLHttpRequest();
+        panel._fhSettingsRequest = xhr;
+        var finish = function () {
+            if (panel._fhSettingsRequest !== xhr) return;
+            panel._fhSettingsRequest = null;
+            if (!panel.panelActive || generation !== panel._fhCameraGeneration) return;
+            // An unavailable app does not cancel an explicit preference. Camera
+            // checks remain independent, so cockpit return still restores it.
+            if (xhr.status === 200) try {
+                var payload = JSON.parse(xhr.responseText);
+                if (typeof payload.autoHideExternal === 'boolean') panel._fhAutoHide = payload.autoHideExternal;
+            } catch (e) { }
+            fhCameraVisibility(panel);
+        };
+        xhr.open('GET', 'http://127.0.0.1:' + FH_PORT + '/panel-settings', true);
+        xhr.timeout = 1500;
+        xhr.onreadystatechange = function () { if (xhr.readyState === 4) finish(); };
+        xhr.onerror = xhr.ontimeout = finish;
+        xhr.send();
+    } catch (e) { panel._fhSettingsRequest = null; }
+}
+function fhStartCamera(panel) {
+    fhStopCamera(panel);
+    var generation = panel._fhCameraGeneration;
+    panel._fhAutoHide = false;
+    fhReadPanelSettings(panel, generation);
+    panel._fhCameraTimer = setInterval(function () { fhCameraVisibility(panel); }, 200);
+    panel._fhSettingsTimer = setInterval(function () { fhReadPanelSettings(panel, generation); }, 1000);
+}
+function fhStopCamera(panel) {
+    panel._fhCameraGeneration = (panel._fhCameraGeneration || 0) + 1;
+    if (panel._fhCameraTimer) clearInterval(panel._fhCameraTimer);
+    if (panel._fhSettingsTimer) clearInterval(panel._fhSettingsTimer);
+    panel._fhCameraTimer = panel._fhSettingsTimer = null;
+    var request = panel._fhSettingsRequest;
+    panel._fhSettingsRequest = null;
+    if (request) try { request.abort(); } catch (e) { }
+    if (panel.ingameUi) panel.ingameUi.classList.remove('fh-external-hidden');
+}
+
 class IngamePanelFlapHappy extends TemplateElement {
     constructor() {
         super();
@@ -90,21 +155,33 @@ class IngamePanelFlapHappy extends TemplateElement {
         var self = this;
         this.ingameUi = this.querySelector('ingame-ui');
         this.iframeElement = document.getElementById('FlapHappyFrame');
-        if (!this.ingameUi) return;
-        this.ingameUi.addEventListener('panelActive', function () {
+        if (!this.ingameUi || this._fhActive) return;
+        this._fhActive = function () {
             self.panelActive = true;
             fhConnect(self);
-        });
-        this.ingameUi.addEventListener('panelInactive', function () {
+            fhStartCamera(self);
+        };
+        this._fhInactive = function () {
             self.panelActive = false;
+            fhStopCamera(self);
             fhDisconnect(self);
             if (self.iframeElement) self.iframeElement.src = '';
-        });
+        };
+        this.ingameUi.addEventListener('panelActive', this._fhActive);
+        this.ingameUi.addEventListener('panelInactive', this._fhInactive);
     }
     initialize() {
         document.body.classList.add('interact');
     }
     disconnectedCallback() {
+        this.panelActive = false;
+        fhStopCamera(this);
+        fhDisconnect(this);
+        if (this.ingameUi) {
+            this.ingameUi.removeEventListener('panelActive', this._fhActive);
+            this.ingameUi.removeEventListener('panelInactive', this._fhInactive);
+        }
+        this._fhActive = this._fhInactive = null;
         super.disconnectedCallback();
     }
 }

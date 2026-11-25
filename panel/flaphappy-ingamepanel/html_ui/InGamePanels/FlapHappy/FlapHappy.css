@@ -59,3 +59,9 @@ ingame-ui#FlapHappyPanel .ingameUiWrapper {
   overflow: hidden !important;
   flex: 1 1 auto !important;
 }
+
+/* Keep the toolbar window and iframe alive so cockpit return restores it. */
+ingame-ui#FlapHappyPanel.fh-external-hidden {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

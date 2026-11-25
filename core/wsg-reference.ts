@@ -16,7 +16,7 @@ export function aircraftVariantAlias(container: string | null, wingMetres: numbe
   const tokens = container.split(/[_-]/);
   if (tokens.length < 2) return null; // bare type code does not identify an add-on
   const suffix = tokens[tokens.length-1];
-  if (/^\d+m$/i.test(suffix)) return Number(suffix.slice(0,-1)) === span ? container : null;
+  if (/^\d+m?$/i.test(suffix)) return Number(suffix.replace(/m$/i,'')) === span ? container : null;
   return container + '_' + span + 'm';
 }
 
@@ -35,6 +35,29 @@ export function exactWsgVariant(alias: string, response: unknown): string | null
   if (candidates.size !== 1) return null;
   const key = Array.from(candidates.values())[0];
   return r.gliders.some(g => g && typeof g.GliderKey === 'string' && g.GliderKey.toLowerCase() === key.toLowerCase()) ? key : null;
+}
+
+/** Select an exact published alias without loosening a match to a substring.
+ * Raw package aliases are permitted only if explicitly present as a literal,
+ * with no alternative span-qualified rule that could imply another variant. */
+export function resolveWsgAlias(container:string,span:number,response:unknown):{alias:string;key:string}|null {
+  if(!/^[a-zA-Z0-9_-]{1,150}$/.test(container)||container.split(/[_-]/).length<2||!isFinite(span)||span<5||span>40)return null;
+  const last=container.split(/[_-]/).pop()!;
+  if(/^\d+m?$/i.test(last)&&Math.abs(Number(last.replace(/m$/i,''))-span)>0.1)return null;
+  const qualified=aircraftVariantAlias(container,span);
+  if(qualified){const key=exactWsgVariant(qualified,response);if(key)return {alias:qualified,key};}
+  const key=exactWsgVariant(container,response);if(!key)return null;
+  const raw=container.toLowerCase();
+  const roster=response as {rules?:Array<{RuleType?:string;Pattern?:string;GliderKey?:string}>};
+  // If this is a common add-on base with distinct span variants, never use the
+  // base alias as a fallback when the precise span failed to match.
+  if(roster.rules?.some(r=>{
+    if(r.RuleType!=='EXACT'&&r.RuleType!=='REGEX'||typeof r.Pattern!=='string')return false;
+    const pattern=r.Pattern.replace(/^\^/,'').replace(/\$$/,'').toLowerCase();
+    const tail=pattern.startsWith(raw)?pattern.slice(raw.length):'';
+    return /^[_-]\d+m?$/.test(tail);
+  }))return null;
+  return {alias:container,key};
 }
 
 export interface WsgAircraftMatch { variantKey: string; displayName: string; profile: WsgPublishedProfile | null; visualVneTasKph?: number|null; }

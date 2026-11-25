@@ -1,4 +1,4 @@
-import { aircraftVariantAlias, exactWsgVariant, verifyWsgReference, type WsgAircraftMatch } from '../../core/wsg-reference';
+import { resolveWsgAlias, verifyWsgReference, type WsgAircraftMatch } from '../../core/wsg-reference';
 import { parseWsgCatalog, type WsgCatalog } from '../../core/wsg-catalog';
 
 export const WSG_PUBLIC_CATALOG = 'https://wesimglide.org/api/flap-happy/catalog-v2.json';
@@ -29,15 +29,14 @@ async function publicJson(url: string, fetcher: typeof fetch): Promise<unknown> 
 
 /** Resolve only exact, independently confirmed WSG variants. No title guesses. */
 export async function matchPublishedWsgAircraft(container: string | null, span: number | null, fetcher: typeof fetch = fetch): Promise<WsgAircraftMatch | null> {
-  const alias = aircraftVariantAlias(container, span);
-  if (!alias) return null;
+  if(typeof container!=='string'||!/^[a-zA-Z0-9_-]{1,150}$/.test(container)||container.split(/[_-]/).length<2||typeof span!=='number'||!isFinite(span)||span<5||span>40)return null;
   const root = 'https://wesimglide.org/api/';
   const rules = await publicJson(root + 'GetGliderRules.php', fetcher);
-  const key = exactWsgVariant(alias, rules);
-  if (!key) return null;
+  const exact=resolveWsgAlias(container,span,rules);if(!exact)return null;
+  const {alias,key}=exact;
   const [catalog, reference] = await Promise.all([
     loadPublishedWsgCatalog(fetcher),
-    publicJson(root + 'GetGliderReference.php?' + new URLSearchParams({ type: alias, wingMeters: String(Math.round(span!)) }), fetcher),
+    publicJson(root + 'GetGliderReference.php?' + new URLSearchParams({ type: alias, wingMeters: String(span) }), fetcher),
   ]);
   const profile = catalog.profiles.find(p => p.variantKey.toLowerCase() === key.toLowerCase()) ?? null;
   return verifyWsgReference(key, reference, profile);

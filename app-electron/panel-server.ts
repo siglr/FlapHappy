@@ -38,6 +38,11 @@ export function startPanelServer(opts: {
       json(res, 200, { app: 'Flap Happy', version: opts.version });
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/panel-settings') {
+      const state=opts.getState();
+      json(res,200,{autoHideExternal:typeof state?.autoHideExternal==='boolean'?state.autoHideExternal:null});
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/state') {
       json(res, 200, opts.getState() ?? { ready: false, profile: null, sample: null, receivedAt: 0, ballast: 0, units: 'kt', zoom: 1 });
       return;

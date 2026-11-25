@@ -259,6 +259,19 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
     }finally{await instance.app.close().catch(()=>{});fs.rmSync(ud,{recursive:true,force:true});}
   });
 
+  it('retains the cockpit-only Auto-hide setting across actual app restart and leaves the external panel visible',async()=>{
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-combined-auto-hide-'));let instance=await launch(ud);
+    try{
+      const read=async()=> (await (await fetch(panelUrl+'/panel-settings')).json()).autoHideExternal;
+      let {app,page}=instance;let panel=await openExternal(app,page);let editor=await openEditor(app,page);
+      await editor.getByText('Window and app',{exact:true}).click();expect(await editor.locator('.fh-auto-hide-external').isChecked()).toBe(false);
+      await editor.check('.fh-auto-hide-external');await waitUntil(async()=>await read()===true,'cockpit preference');expect(await panel.locator('.fh-fit').isVisible()).toBe(true);
+      await editor.click('.fh-settings .fh-back');await app.close();instance=await launch(ud);({app,page}=instance);expect(await read()).toBe(true);
+      panel=await openExternal(app,page);expect(await panel.locator('.fh-fit').isVisible()).toBe(true);editor=await openEditor(app,page);await editor.getByText('Window and app',{exact:true}).click();expect(await editor.locator('.fh-auto-hide-external').isChecked()).toBe(true);
+      await editor.uncheck('.fh-auto-hide-external');await waitUntil(async()=>await read()===false,'cockpit preference off');
+    }finally{await instance.app.close().catch(()=>{});fs.rmSync(ud,{recursive:true,force:true});}
+  });
+
   it('replay records real source samples and the cockpit panel follows changing flap positions', async () => {
     const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-e2e-'));
     fs.mkdirSync(path.join(ud,'profiles'),{recursive:true});

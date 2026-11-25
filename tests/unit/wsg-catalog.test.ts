@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseWsgCatalog } from '../../core/wsg-catalog';
 import { loadPublishedWsgCatalog, matchPublishedWsgAircraft, WSG_PUBLIC_CATALOG } from '../../adapters/electron/wsg-catalog-source';
-import { aircraftContainer, aircraftVariantAlias, exactWsgVariant } from '../../core/wsg-reference';
+import { aircraftContainer, aircraftVariantAlias, exactWsgVariant, resolveWsgAlias } from '../../core/wsg-reference';
 import { resolveProfileChoice, selectLiveProfileId } from '../../core/select';
 import { mappingIdentity, resetWsgOverrides, resolveWsgOverrides, transitionIdentity } from '../../core/wsg-overrides';
 import { defaultSettings, normalizeSettings } from '../../core/settings';
@@ -59,6 +59,19 @@ describe('anonymous published WSG source', () => {
     expect(mock.mock.calls.length).toBe(before);
     ref.glider.flapLabels['2']='wrong';
     expect(await matchPublishedWsgAircraft('publisher_model',18,mock as unknown as typeof fetch)).toBeNull();
+  });
+  it('supports an exact publisher raw alias for non-integral wingspan without using broad contains or wrong span rules',()=>{
+    const rules={ok:true,gliders:[{GliderKey:'BLANIK'},{GliderKey:'MODEL18'},{GliderKey:'MODEL15'}],rules:[
+      {RuleType:'REGEX',Pattern:'^touchingcloud-blanik',GliderKey:'BLANIK'},
+      {RuleType:'EXACT',Pattern:'vendor_model',GliderKey:'MODEL18'},
+      {RuleType:'EXACT',Pattern:'vendor_model_18m',GliderKey:'MODEL18'},
+      {RuleType:'EXACT',Pattern:'vendor_model_15m',GliderKey:'MODEL15'},
+      {RuleType:'CONTAINS',Pattern:'dg808',GliderKey:'BLANIK'}]};
+    expect(resolveWsgAlias('touchingcloud-blanik',16.2,rules)).toEqual({alias:'touchingcloud-blanik',key:'BLANIK'});
+    expect(resolveWsgAlias('vendor_model',15,rules)).toEqual({alias:'vendor_model_15m',key:'MODEL15'});
+    expect(resolveWsgAlias('vendor_model',17,rules)).toBeNull();
+    expect(resolveWsgAlias('vendor_model_18m',15,rules)).toBeNull();
+    expect(resolveWsgAlias('vendor_dg808',18,rules)).toBeNull();
   });
   it('never reuses the last local profile for an unmatched or ambiguous live title', () => {
     const metas = [{id:'a',match:['Model A'],incomplete:false},{id:'b',match:['both'],incomplete:false},{id:'c',match:['both'],incomplete:false}] as any;

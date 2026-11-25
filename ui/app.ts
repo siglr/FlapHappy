@@ -640,6 +640,11 @@ export class App {
     this.renderAll();
   }
 
+  setAutoHideExternal(on:boolean):void {
+    this.settings.ui.auto_hide_external=on;
+    this.persistSoon();this.renderAll();
+  }
+
   setShowAgl(on: boolean): void {
     this.settings.ui.show_agl = on;
     this.persistSoon();

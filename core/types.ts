@@ -120,6 +120,8 @@ export interface Settings {
     show_agl: boolean;
     /** Optional large current/suggested flap indicator instead of IAS and flap rows. */
     simple_flap: boolean;
+    /** Hide only the in-sim toolbar panel in recognized external camera views. */
+    auto_hide_external: boolean;
     /** The transition speeds under the flap row. */
     show_transitions: boolean;
     /** The wind speed drawn on the AGL bar. */
