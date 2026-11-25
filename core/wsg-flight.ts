@@ -2,7 +2,7 @@ import type { Profile, ValidationResult } from './types';
 import type { WsgAircraftMatch } from './wsg-reference';
 import { resolveWsgOverrides, type WsgOverrideMap } from './wsg-overrides';
 import { createBlankProfile } from './profile';
-import { effectiveSpeed } from './scale';
+import { effectiveSpeed,visualLowerBound } from './scale';
 
 /** A runtime-only adapter. The catalog's TAS number is visual geometry only;
  * it is never assigned to the standalone profile's IAS limit. */
@@ -36,11 +36,14 @@ export function wsgBoundaries(p:Profile,f:number):number[]|null {
   const visible=groups.boundaryIndexes.map(i=>effectiveSpeed(p.transitions[i],f));
   if(visible.some(x=>x===null||!isFinite(x)||x<=0))return null;
   const v=visible as number[];
-  const stall=effectiveSpeed(p.vs_min,f), lo=stall??0;
+  const stall=effectiveSpeed(p.vs_min,f), lo=stall??visualLowerBound(v);
   const last=v[v.length-1]??lo;
   const gaps=v.slice(1).map((x,i)=>x-v[i]).filter(x=>x>0).sort((a,b)=>a-b);
   const gap=gaps.length?gaps[Math.floor(gaps.length/2)]:Math.max(10,(last-lo)*0.2);
-  const hi=p.vne??Math.max(p.wsg.visualMaxKt??0,last+gap);
+  // VNE from WSG is TAS: use its numeric equivalent as the geometric endpoint,
+  // not an IAS threshold. An incompatible/missing bound cannot hide valid triggers.
+  const catalog=p.wsg.visualMaxKt;
+  const hi=catalog!==null&&catalog>Math.max(last,lo)?catalog:p.vne??last+gap;
   const out=[lo,...v,hi];
   return out.every((x,i)=>isFinite(x)&&x>=0&&(i===0||x>out[i-1]))?out:null;
 }

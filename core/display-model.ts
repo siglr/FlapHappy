@@ -196,7 +196,9 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     if (mappedRow !== null && sample && sample.onGround !== true &&
         recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= GROUND_SPEED_KT) {
       let row = bucketIndex(recommendationIas, boundaries);
-      if(profile.wsg&&profile.vne===null&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
+      if(profile.vs_min.no_ballast_kt===null&&recommendationIas<boundaries[0])row=0;
+      if(profile.wsg&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
+      if(profile.wsg&&profile.vne!==null&&recommendationIas>profile.vne)row=-1;
       const currentGroup=base.currentRow;
       if (currentGroup!==null && row >= 0 && row < base.cells.length && row !== currentGroup) {
         base.recommendedRow=row;
@@ -211,7 +213,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
       } else {
         const m = mapMarker(ias, boundaries, base.edges);
         base.marker = { pos: m.pos, region: m.region, greyed: false };
-        base.alert = m.region === 'below' && (!profile.wsg || profile.vs_min.no_ballast_kt!==null) ? 'LOW' : m.region === 'above' && (!profile.wsg||profile.vne!==null) ? 'FAST' : null;
+        base.alert = m.region === 'below' && profile.vs_min.no_ballast_kt!==null ? 'LOW' : profile.vne!==null&&ias>profile.vne ? 'FAST' : null;
       }
     }
   }
