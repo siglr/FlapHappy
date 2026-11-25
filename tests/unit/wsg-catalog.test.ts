@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { parseWsgCatalog } from '../../core/wsg-catalog';
 import { loadPublishedWsgCatalog, matchPublishedWsgAircraft, WSG_PUBLIC_CATALOG } from '../../adapters/electron/wsg-catalog-source';
 import { aircraftContainer, aircraftVariantAlias, exactWsgVariant } from '../../core/wsg-reference';
-import { selectLiveProfileId } from '../../core/select';
+import { resolveProfileChoice, selectLiveProfileId } from '../../core/select';
+import { mappingIdentity, resetWsgOverrides, resolveWsgOverrides, transitionIdentity } from '../../core/wsg-overrides';
 import { defaultSettings, normalizeSettings } from '../../core/settings';
 
 const fixture = () => ({schema:'wsg.flaphappy.catalog/2', revision:4, profiles:[{
@@ -69,4 +70,36 @@ describe('anonymous published WSG source', () => {
     expect(selectLiveProfileId(metas,st,'Unknown')).toBe('b');
   });
 
+});
+
+it('persists separate manual and explicit fallback choices, never guesses pending WSG or ambiguous title',()=>{
+  const metas=[{id:'manual',match:[],incomplete:false},{id:'fallback',match:[],incomplete:false},{id:'assigned',match:[],incomplete:false},{id:'a',match:['both'],incomplete:false},{id:'b',match:['both'],incomplete:false}] as any;
+  const state=normalizeSettings({schema:'flaphappy.settings/1',last_profile_id:'manual',profile_selection:{mode:'auto',manualId:'manual',fallbackId:'fallback'}});
+  expect(state.profile_selection).toEqual({mode:'auto',manualId:'manual',fallbackId:'fallback'});
+  const none={pending:false,usableVariantKey:null};
+  expect(resolveProfileChoice(metas,state,'both','both',none)).toEqual({kind:'fallback',id:'fallback'});
+  expect(resolveProfileChoice(metas,state,'both','both',{...none,pending:true})).toEqual({kind:'pending'});
+  expect(resolveProfileChoice(metas,state,'both','both',{...none,usableVariantKey:'WSG'})).toEqual({kind:'wsg',variantKey:'WSG'});
+  state.active_by_title.both='assigned';
+  expect(resolveProfileChoice(metas,state,'both','both',{...none,usableVariantKey:'WSG'})).toEqual({kind:'assigned',id:'assigned'});
+  state.profile_selection.mode='manual';
+  expect(resolveProfileChoice(metas,state,'other','other',none)).toEqual({kind:'manual',id:'manual'});
+  expect(state.profile_selection.fallbackId).toBe('fallback');
+  state.profile_selection.mode='auto';state.profile_selection.fallbackId=null;
+  expect(resolveProfileChoice(metas,state,'other','other',none)).toEqual({kind:'none'});
+});
+
+it('WSG field overlay follows untouched defaults and preserves published weights in local manual mode; reset and mapping changes are explicit',()=>{
+  const base=parseWsgCatalog(fixture()).profiles[0];
+  const transition=transitionIdentity(base.bands[0],base.bands[1]);
+  const all={[base.variantKey]:{mapping:mappingIdentity(base),ballastMode:'manual' as const,transitions:{[transition]:{lightStartKt:51,excludeFromDisplay:false}}}};
+  const next={...base,bands:base.bands.map((b,i)=>i===1?{...b,lightStartKt:52,heavyStartKt:62}:b)};
+  const reopened=normalizeSettings(JSON.parse(JSON.stringify({schema:'flaphappy.settings/1',wsg_profile_overrides:all})));
+  expect(reopened.wsg_profile_overrides).toEqual(all);
+  expect(resolveWsgOverrides(next,reopened.wsg_profile_overrides)).toMatchObject({state:'ok',ballastMode:'manual',profile:{lightWeightKg:400,heavyWeightKg:600,bands:[{}, {lightStartKt:51,heavyStartKt:62,excludeFromDisplay:false}, {}]}});
+  expect(resolveWsgOverrides(next,resetWsgOverrides(all,base.variantKey))).toMatchObject({state:'ok',ballastMode:'live',profile:{bands:[{}, {lightStartKt:52,heavyStartKt:62,excludeFromDisplay:true},{}]}});
+  expect(resolveWsgOverrides({...next,variantKey:'Other'},all)).toMatchObject({state:'ok',ballastMode:'live'});
+  expect(resolveWsgOverrides({...next,bands:next.bands.map((b,i)=>i===1?{...b,label:'Changed'}:b)},all)).toEqual({state:'mapping-changed'});
+  expect(resolveWsgOverrides(next,{[base.variantKey]:{...all[base.variantKey],lightWeightKg:410}})).toEqual({state:'invalid'});
+  expect(base.bands[1].lightStartKt).toBe(50);
 });

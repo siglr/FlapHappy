@@ -13,6 +13,7 @@ import {
 import { formatSpeedField, heightToMetres, heightUnitLabel, metresToHeight, unitLabel, unitToKnots, type SpeedUnit } from '../core/units';
 import { validateProfile } from '../core/validate';
 import type { WsgCatalog, WsgPublishedProfile } from '../core/wsg-catalog';
+import { mappingIdentity, resetWsgOverrides, resolveWsgOverrides, transitionIdentity, type WsgOverrides } from '../core/wsg-overrides';
 import { canSaveWeightMode, profileForWeightMode, weightModeForProfile, type WeightMode } from '../core/weight';
 import { clear, fmtNum, h, numberOrNull, setText, toggleClass } from './dom';
 import type { App } from './app';
@@ -486,6 +487,49 @@ export class SettingsView {
     }
     transitions.appendChild(h('div', { class: 'fh-hint' }, 'Flight activation is pending standalone support for the published exclusion rules and complete IAS bounds. No local profiles are overwritten.'));
     this.table.appendChild(transitions);
+    this.renderWsgAdjustments(p);
+  }
+
+  /** Local edits are staged separately; empty override fields inherit current WSG defaults. */
+  private renderWsgAdjustments(p: WsgPublishedProfile): void {
+    const app=this.app;
+    const prior=app.settings.wsg_profile_overrides[p.variantKey];
+    const current=resolveWsgOverrides(p,app.settings.wsg_profile_overrides);
+    const box=h('div',{class:'fh-profile-card fh-wsg-adjustments'},h('div',{class:'fh-subtitle'},'Personal WSG adjustments'));
+    const status=h('div',{class:'fh-hint fh-wsg-adjustment-status',role:'status'},current.state==='ok'?'Leave an input blank to inherit its current WSG default. Saved edits stay on this device.':'Saved overrides do not match the current definition. Reset or review before editing.');
+    box.appendChild(status);
+    const mode=h('select',{class:'fh-in fh-wsg-ballast', 'aria-label':'Personal ballast mode'},h('option',{value:'inherit'},'WSG default (Live flying weight)'),h('option',{value:'manual'},'Manual ballast slider'),h('option',{value:'live'},'Live flying weight')) as HTMLSelectElement;
+    mode.value=prior?.ballastMode??'inherit';
+    box.appendChild(h('label',{class:'fh-profile-grid'},h('span',{class:'fh-profile-title'},'Ballast mode'),mode));
+    const number=(key:string,published:number|null,override:number|null|undefined)=>h('input',{class:'fh-in',type:'number',min:'0',step:'any',placeholder:published===null?'Not published':String(published),value:typeof override==='number'?String(override):'','aria-label':key,'data-wsg-override':key}) as HTMLInputElement;
+    const l=number('lightWeightKg',p.lightWeightKg,prior?.lightWeightKg), r=number('heavyWeightKg',p.heavyWeightKg,prior?.heavyWeightKg);
+    const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph);
+    const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid'},h('div',{class:'fh-profile-title'},name),...controls);
+    box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS (km/h)',ls,rs));
+    box.appendChild(h('div',{class:'fh-hint'},'Speed overrides below are IAS in km/h; published reference weights are retained even in Manual ballast mode.'));
+    const rows=p.bands.slice(1).map((b,i)=>{
+      const id=transitionIdentity(p.bands[i],b),t=prior?.transitions?.[id];
+      const light=number('transition '+i+' Light',b.lightStartKt*1.852,t?.lightStartKt===undefined?undefined:t.lightStartKt*1.852),heavy=number('transition '+i+' Heavy',b.heavyStartKt*1.852,t?.heavyStartKt===undefined?undefined:t.heavyStartKt*1.852);
+      const visibility=h('select',{class:'fh-in','aria-label':'Transition '+i+' visibility'},h('option',{value:'inherit'},'WSG default ('+(b.excludeFromDisplay?'Hide':'Show')+')'),h('option',{value:'show'},'Show'),h('option',{value:'hide'},'Hide')) as HTMLSelectElement;
+      visibility.value=t?.excludeFromDisplay===undefined?'inherit':t.excludeFromDisplay?'hide':'show';
+      box.appendChild(row(p.bands[i].label+' → '+b.label,light,heavy));box.appendChild(row('In-flight display',visibility));
+      return {id,light,heavy,visibility};
+    });
+    const save=h('button',{type:'button',class:'fh-btn fh-wsg-save-adjustments',disabled:current.state!=='ok',onclick:async()=>{
+      const read=(el:HTMLInputElement)=>{if(!el.value.trim())return undefined;const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');return n;};
+      try{
+        const o:WsgOverrides={mapping:mappingIdentity(p),transitions:{}};
+        if(mode.value==='manual'||mode.value==='live')o.ballastMode=mode.value;
+        const vals={lightWeightKg:read(l),heavyWeightKg:read(r),lightStallIasKph:read(ls),heavyStallIasKph:read(rs)};
+        for(const k of Object.keys(vals) as (keyof typeof vals)[])if(vals[k]!==undefined)o[k]=vals[k];
+        for(const x of rows){const a=read(x.light),b=read(x.heavy);const t:{lightStartKt?:number;heavyStartKt?:number;excludeFromDisplay?:boolean}={};if(a!==undefined)t.lightStartKt=a/1.852;if(b!==undefined)t.heavyStartKt=b/1.852;if(x.visibility.value!=='inherit')t.excludeFromDisplay=x.visibility.value==='hide';if(Object.keys(t).length)o.transitions![x.id]=t;}
+        const candidate={...app.settings.wsg_profile_overrides,[p.variantKey]:o};
+        if(resolveWsgOverrides(p,candidate).state!=='ok')throw Error('Invalid curve: check ordered IAS, reference weights and both stall values. Changed weights require a complete personal curve.');
+        app.settings.wsg_profile_overrides=candidate;await app.persistNow();setText(status,'Personal adjustments saved locally. Flight activation is not available in this preview.');
+      }catch(e){setText(status,e instanceof Error?e.message:'Could not save adjustments.');}
+    }},'Save personal adjustments');
+    const reset=h('button',{type:'button',class:'fh-btn fh-wsg-reset-adjustments',onclick:async()=>{app.settings.wsg_profile_overrides=resetWsgOverrides(app.settings.wsg_profile_overrides,p.variantKey);await app.persistNow();this.renderAll();}},'Reset to WSG defaults');
+    box.appendChild(h('div',{class:'fh-tools'},save,reset));this.table.appendChild(box);
   }
 
   private transitionLabel(p: Profile, i: number): string {
@@ -509,6 +553,7 @@ export class SettingsView {
   private armRowDrag(row: HTMLElement, from: number): void {
     const start = (clientX: number, clientY: number, target: EventTarget | null) => {
       if (this.dragStop || overControl(target)) return;
+      const view=row.ownerDocument.defaultView??window;
       let moved = false;
       let drop = from;
       let ghost: HTMLElement | null = null;
@@ -536,8 +581,8 @@ export class SettingsView {
       };
       const finish = () => {
         this.dragStop = null;
-        window.removeEventListener('mousemove', onMouse);
-        window.removeEventListener('mouseup', finish);
+        view.removeEventListener('mousemove', onMouse);
+        view.removeEventListener('mouseup', finish);
         row.removeEventListener('touchmove', onTouch);
         row.removeEventListener('touchend', finish);
         if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
@@ -556,8 +601,8 @@ export class SettingsView {
         e.preventDefault();
       };
       this.dragStop = finish;
-      window.addEventListener('mousemove', onMouse);
-      window.addEventListener('mouseup', finish);
+      view.addEventListener('mousemove', onMouse);
+      view.addEventListener('mouseup', finish);
       // On the row, not the window: a window touch listener cannot cancel scrolling.
       row.addEventListener('touchmove', onTouch);
       row.addEventListener('touchend', finish);
@@ -772,14 +817,14 @@ function placeGhost(row: HTMLElement, ghost: HTMLElement | null, x: number, y: n
     const live = row.querySelectorAll('input');
     const copy = ghost.querySelectorAll('input');
     for (let i = 0; i < live.length && i < copy.length; i++) (copy[i] as HTMLInputElement).value = (live[i] as HTMLInputElement).value;
-    document.body.appendChild(ghost);
+    row.ownerDocument.body.appendChild(ghost);
     ghost.setAttribute('data-off-x', String(x - rect.left));
     ghost.setAttribute('data-off-y', String(y - rect.top));
   }
   const offX = Number(ghost.getAttribute('data-off-x'));
   const offY = Number(ghost.getAttribute('data-off-y'));
-  ghost.style.left = (x - offX + window.scrollX) + 'px';
-  ghost.style.top = (y - offY + window.scrollY) + 'px';
+  ghost.style.left = (x - offX + (row.ownerDocument.defaultView?.scrollX??0)) + 'px';
+  ghost.style.top = (y - offY + (row.ownerDocument.defaultView?.scrollY??0)) + 'px';
   return ghost;
 }
 
@@ -797,7 +842,7 @@ function nearestSlot(slots: number[], y: number): number {
 }
 
 function overControl(target: EventTarget | null): boolean {
-  let el = target instanceof HTMLElement ? target : null;
+  let el = target && (target as Element).nodeType===1 ? target as HTMLElement : null;
   while (el) {
     const tag = el.tagName;
     if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'LABEL') return true;

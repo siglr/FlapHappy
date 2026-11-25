@@ -254,3 +254,8 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-display-options .fh-optrow { flex-wrap: wrap; }
 .fh-new-name { min-width: 80px; }
 .fh-profile-card .fh-weight-mode { max-width: 100%; }
+
+.fh-profile-controls { display:flex; flex-wrap:wrap; align-items:end; padding:6px; }
+.fh-profile-controls label { display:flex; flex-direction:column; min-width:112px; flex:1; margin:0 8px 3px 0; }
+.fh-profile-controls .fh-in { width:100%; margin-top:3px; }
+.fh-profile-current { flex-basis:100%; font-size:12px; color:#b4c9df; }

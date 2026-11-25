@@ -22,3 +22,23 @@ export function selectLiveProfileId(metas: ProfileMeta[], settings: Settings, ti
   const matching = usable.filter(m => !m.incomplete && profileMatchesTitle(m.match, title));
   return matching.length === 1 ? matching[0].id : null;
 }
+
+export type ProfileChoice = { kind:'manual'|'assigned'|'local'|'fallback'; id:string } | {kind:'wsg'; variantKey:string} | {kind:'none'|'pending'};
+
+/** Selection policy independent of the app/window or source implementation. WSG
+ * is passed only after an exact verified match and a usable effective profile.
+ * A fallback is a deliberate setting, never an implicit last-used profile. */
+export function resolveProfileChoice(metas: ProfileMeta[], settings: Settings, title: string | null, bindingKey: string | null, published: { pending:boolean; usableVariantKey:string|null }): ProfileChoice {
+  const usable = metas.filter(m => !m.error && !m.incomplete);
+  const valid = (id:string|null|undefined): id is string => !!id && usable.some(m=>m.id===id);
+  const selection = settings.profile_selection;
+  if (selection.mode === 'manual') return valid(selection.manualId) ? {kind:'manual',id:selection.manualId} : {kind:'none'};
+  if (!title) return {kind:'none'};
+  const explicit = (bindingKey ? settings.active_by_title[bindingKey] : undefined) ?? settings.active_by_title[title];
+  if (valid(explicit)) return {kind:'assigned',id:explicit};
+  if (published.pending) return {kind:'pending'};
+  if (published.usableVariantKey) return {kind:'wsg',variantKey:published.usableVariantKey};
+  const local = usable.filter(m=>profileMatchesTitle(m.match,title));
+  if (local.length === 1) return {kind:'local',id:local[0].id};
+  return valid(selection.fallbackId) ? {kind:'fallback',id:selection.fallbackId} : {kind:'none'};
+}

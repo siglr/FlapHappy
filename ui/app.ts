@@ -6,7 +6,7 @@ import { CurrentFlapResolver, type CurrentFlap } from '../core/flapmap';
 import { buildDisplayModel, deriveLink, type DisplayModel } from '../core/display-model';
 import { canSaveWeightMode, interpolationFraction, liveWeight, profileForWeightMode, usesManualBallast, validWeightAnchors, weightModeForProfile, type WeightMode } from '../core/weight';
 import { initialBallast, type BallastState } from '../core/ballast';
-import { selectLiveProfileId, selectProfileId } from '../core/select';
+import { resolveProfileChoice, selectProfileId } from '../core/select';
 import { effectiveBoundaries, smoothStep } from '../core/scale';
 import { clamp01, cloneProfile, exportProfileJson, parseProfileJson, profileLabel } from '../core/profile';
 import { defaultSettings } from '../core/settings';
@@ -68,6 +68,10 @@ export class App {
   private liveSelectionGeneration = 0;
   private noProfileMessage = '';
   detectedWsgVariant: string | null = null;
+  private profileEditorWindow: Window|null=null;
+  private profileControls: HTMLElement|null=null;
+  private profileControlsSignature='';
+  activeProfileSource: 'manual'|'assigned'|'local'|'fallback'|'none' = 'none';
   private unsavedBindingKey: string | null = null;
   get currentAircraftBindingKey(): string | null { return this.liveBindingKey; }
   get draftAircraftBindingKey(): string | null { return this.unsavedBindingKey; }
@@ -159,7 +163,8 @@ export class App {
     if (this.deps.compact && caps.compact) buttons.push(iconBtn('\u00d7', 'Close', () => this.deps.host.quit(), 'fh-close'));
 
     const header = h('div', { class: 'fh-header' }, h('div', { class: 'fh-head-text' }, this.titleEl, this.statusEl), h('div', { class: 'fh-head-btns' }, ...buttons));
-    this.displayView = h('div', { class: 'fh-display' }, header, this.strip.el);
+    this.profileControls=h('div',{class:'fh-profile-controls'});
+    this.displayView = h('div', { class: 'fh-display' }, header, this.profileControls, this.strip.el);
     this.settingsHost = h('div', { class: 'fh-settings-host' });
     root.appendChild(this.displayView);
     root.appendChild(this.settingsHost);
@@ -170,12 +175,35 @@ export class App {
     }
   }
 
-  private installDrop(): void {
+  /** The live app's selection controls are deliberately separate from profile definition fields. */
+  private paintProfileControls():void {
+    if(!this.profileControls)return;
+    const root=this.profileControls;
+    root.style.display=this.strictLiveSelection()?'':'none';
+    if(!this.strictLiveSelection())return;
+    const choice=this.settings.profile_selection;
+    const candidates=this.metas.filter(m=>!m.error&&!m.incomplete);
+    const signature=JSON.stringify([choice,candidates.map(m=>m.id),this.profile?.id,this.activeProfileSource,this.detectedWsgVariant]);
+    if(signature===this.profileControlsSignature)return;
+    this.profileControlsSignature=signature;
+    clear(root);
+    const select=h('select',{class:'fh-in fh-profile-mode','aria-label':'Profile mode'},h('option',{value:'auto'},'Auto-detect'),h('option',{value:'manual'},'Manual')) as HTMLSelectElement;
+    select.value=choice.mode;select.addEventListener('change',()=>this.setProfileSelection(select.value==='manual'?'manual':'auto'));
+    const field=choice.mode==='manual'?'manualId':'fallbackId';
+    const picker=h('select',{class:'fh-in fh-profile-choice','aria-label':choice.mode==='manual'?'Active profile':'Fallback profile'},h('option',{value:''},'None'),...candidates.map(m=>h('option',{value:m.id},profileLabel(m.id)))) as HTMLSelectElement;
+    const saved=choice[field];if(saved&&!candidates.some(m=>m.id===saved))picker.appendChild(h('option',{value:saved},saved+' (unavailable)'));
+    picker.value=saved??'';picker.addEventListener('change',()=>this.setProfileSelection(choice.mode,field,picker.value||null));
+    const source=this.profile?this.activeProfileSource==='fallback'?'Fallback profile':this.activeProfileSource==='manual'?'Manual profile':this.activeProfileSource==='assigned'?'Assigned local profile':'Matched local profile':this.detectedWsgVariant?'WSG '+this.detectedWsgVariant+' (not usable yet)':'No active profile';
+    root.appendChild(h('label',{},'Profile mode',select));root.appendChild(h('label',{},choice.mode==='manual'?'Active profile':'Fallback profile',picker));
+    root.appendChild(h('div',{class:'fh-profile-current',role:'status'},source+(this.profile?': '+profileLabel(this.profile.id):'')));
+  }
+
+  private installDrop(doc:Document=document): void {
     const stop = (e: Event) => {
       e.preventDefault();
     };
-    document.addEventListener('dragover', stop);
-    document.addEventListener('drop', (e) => {
+    doc.addEventListener('dragover', stop);
+    doc.addEventListener('drop', (e) => {
       e.preventDefault();
       const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
       if (!f) return;
@@ -218,7 +246,10 @@ export class App {
     this.liveBindingKey = null;
     this.liveSelectionGeneration++;
     this.manualPick = false;
-    if (this.strictLiveSelection()) this.clearLiveProfile('Waiting for MSFS aircraft.');
+    if (this.strictLiveSelection()) {
+      this.clearLiveProfile('Waiting for MSFS aircraft.');
+      if(this.settings.profile_selection.mode==='manual')this.refreshLiveProfileSelection();
+    }
     if (this.usingSim) {
       this.syncSimToProfile();
       d.sim.start((s) => this.onSample(s));
@@ -256,7 +287,7 @@ export class App {
         this.liveBindingKey = binding;
         const generation = ++this.liveSelectionGeneration;
         this.clearLiveProfile(title ? 'No profile for this aircraft. Choose a custom profile in Settings.' : 'Waiting for MSFS aircraft.');
-        if (title && binding) void this.selectForLiveAircraft(title, binding, generation, s);
+        if (title && binding || this.settings.profile_selection.mode==='manual') void this.selectForLiveAircraft(title, binding, generation, s);
       }
     } else if (s.connected && s.aircraftTitle && s.aircraftTitle !== this.lastTitle) {
       this.lastTitle = s.aircraftTitle;
@@ -288,12 +319,17 @@ export class App {
   }
 
   refreshLiveProfileSelection(): void {
-    if (!this.strictLiveSelection() || !this.lastTitle || !this.liveBindingKey || !this.lastSample) return;
-    const generation = ++this.liveSelectionGeneration;
-    if (!this.settings.wsg_profiles_enabled) this.detectedWsgVariant = null;
-    if (!this.profile) this.noProfileMessage = 'No profile for this aircraft. Choose a custom profile in Settings.';
-    void this.selectForLiveAircraft(this.lastTitle, this.liveBindingKey, generation, this.lastSample);
-    this.renderAll();
+    if (!this.strictLiveSelection()) return;
+    const generation=++this.liveSelectionGeneration;
+    this.clearLiveProfile(this.lastTitle?'No profile for this aircraft. Choose a custom profile in Settings.':'Waiting for MSFS aircraft.');
+    if(this.lastSample) void this.selectForLiveAircraft(this.lastTitle,this.liveBindingKey,generation,this.lastSample);
+    else if(this.settings.profile_selection.mode==='manual') void this.applyLocalChoice(resolveProfileChoice(this.metas,this.settings,null,null,{pending:false,usableVariantKey:null}),generation);
+  }
+
+  setProfileSelection(mode:'auto'|'manual',field?:'manualId'|'fallbackId',id?:string|null):void {
+    this.settings.profile_selection.mode=mode;
+    if(field) this.settings.profile_selection[field]=id??null;
+    this.persistSoon();this.refreshLiveProfileSelection();
   }
 
   private clearLiveProfile(message: string): void {
@@ -301,28 +337,35 @@ export class App {
     this.validation = null;
     this.noProfileMessage = message;
     this.detectedWsgVariant = null;
+    this.activeProfileSource = 'none';
     this.resolver.reset();
     this.deps.realSource?.setLvarName?.(null);
     this.smoothIas = this.smoothAgl = null;
     this.renderAll();
   }
 
-  private async selectForLiveAircraft(title: string, binding: string, generation: number, sample: SimSample): Promise<void> {
-    const id = selectLiveProfileId(this.metas, this.settings, title, binding);
-    if (id && this.profile?.id !== id) await this.activate(id, false, generation);
-    if (generation !== this.liveSelectionGeneration) return;
-    const override = this.settings.active_by_title[binding] ?? this.settings.active_by_title[title];
-    if (override && id === override) return; // deliberate local binding always wins
-    const host = this.deps.host;
-    if (!this.settings.wsg_profiles_enabled || !host.matchWsgAircraft || !sample.aircraftContainer || !sample.wingSpanM) return;
+  private async applyLocalChoice(choice:ReturnType<typeof resolveProfileChoice>,generation:number):Promise<void> {
+    if(!('id' in choice)||generation!==this.liveSelectionGeneration)return;
+    if(this.profile?.id!==choice.id)await this.activate(choice.id,false,generation);
+    if(generation===this.liveSelectionGeneration&&this.profile?.id===choice.id){this.activeProfileSource=choice.kind;this.renderAll();}
+  }
+
+  private async selectForLiveAircraft(title: string|null, binding: string|null, generation: number, sample: SimSample): Promise<void> {
+    const host=this.deps.host;
+    const mightLookup=!!(this.settings.wsg_profiles_enabled&&host.matchWsgAircraft&&sample.aircraftContainer&&sample.wingSpanM);
+    const first=resolveProfileChoice(this.metas,this.settings,title,binding,{pending:mightLookup,usableVariantKey:null});
+    if(first.kind!=='pending'){await this.applyLocalChoice(first,generation);return;}
     try {
-      const matched = await host.matchWsgAircraft(sample.aircraftContainer, sample.wingSpanM);
-      if (generation !== this.liveSelectionGeneration || binding !== this.liveBindingKey) return;
-      this.detectedWsgVariant = matched?.variantKey ?? null;
-      if (matched && !this.profile) this.noProfileMessage = matched.profile
-        ? 'WSG ' + matched.variantKey + ': published profile not yet usable in flight. Choose a local profile in Settings.'
-        : 'WSG ' + matched.variantKey + ': no published flap profile. Choose a custom profile in Settings.';
-    } catch { /* Offline or unverifiable reference: keep the local/no-profile state. */ }
+      const matched=await host.matchWsgAircraft!(sample.aircraftContainer!,sample.wingSpanM!);
+      if(generation!==this.liveSelectionGeneration||binding!==this.liveBindingKey)return;
+      this.detectedWsgVariant=matched?.variantKey??null;
+      // No WSG flight profile until its missing IAS bounds and grouped exclusions are supported.
+      if(matched)this.noProfileMessage=matched.profile
+        ? 'WSG '+matched.variantKey+': published profile not yet usable in flight. Choose a local profile in Settings.'
+        : 'WSG '+matched.variantKey+': no published flap profile. Choose a custom profile in Settings.';
+    }catch{/* Offline: use only explicitly configured fallback or unique local title rule. */}
+    if(generation!==this.liveSelectionGeneration)return;
+    await this.applyLocalChoice(resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:null}),generation);
     this.renderAll();
   }
 
@@ -354,7 +397,8 @@ export class App {
     if (manual) {
       this.manualPick = true;
       const key = this.strictLiveSelection() ? binding : this.lastTitle;
-      if (key) this.settings.active_by_title[key] = id;
+      if(this.strictLiveSelection()&&this.settings.profile_selection.mode==='manual'){this.settings.profile_selection.manualId=id;this.activeProfileSource='manual';}
+      else if (key) {this.settings.active_by_title[key] = id;this.activeProfileSource='assigned';}
     }
     this.settings.last_profile_id = id;
     if (manual || !this.strictLiveSelection() || !this.unsaved) this.setUnsaved(null);
@@ -401,7 +445,8 @@ export class App {
       // Retain it for this exact aircraft title across restart; never guess an alias.
       this.manualPick = true;
       const key = this.strictLiveSelection() ? this.liveBindingKey : this.lastTitle;
-      if (key) this.settings.active_by_title[key] = d.id;
+      if(this.strictLiveSelection()&&this.settings.profile_selection.mode==='manual'){this.settings.profile_selection.manualId=d.id;this.activeProfileSource='manual';}
+      else if (key) {this.settings.active_by_title[key] = d.id;this.activeProfileSource='assigned';}
       if (this.strictLiveSelection()) ++this.liveSelectionGeneration;
     }
     this.settings.last_profile_id = d.id;
@@ -542,9 +587,28 @@ export class App {
   // ---------------------------------------------------------------- Settings
 
   openSettings(): void {
-    if (this.settingsView) return;
+    if (this.settingsView) { this.profileEditorWindow?.focus(); return; }
     this.settingsView = new SettingsView(this);
     clear(this.settingsHost);
+    // Electron live mode uses a separate native editor. It owns no telemetry or
+    // persistence service; the controls work against this same App instance.
+    if(this.strictLiveSelection()&&window.flapHappyBridge){
+      try{
+        const editor=window.open('about:blank','flaphappy-profiles','popup,width=760,height=760');
+        if(editor){
+          this.profileEditorWindow=editor;
+          editor.document.title='Flap Happy - Profiles';
+          const link=document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]');
+          if(link){const css=editor.document.createElement('link');css.rel='stylesheet';css.href=link.href;editor.document.head.appendChild(css);}
+          const root=editor.document.createElement('main');root.className='fh-root';editor.document.body.appendChild(root);
+          root.appendChild(this.settingsView.el);
+          this.installDrop(editor.document);
+          editor.addEventListener('beforeunload',()=>{if(this.profileEditorWindow===editor){this.profileEditorWindow=null;this.closeSettings();}});
+          editor.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&(e.target as HTMLElement|null)?.tagName!=='SELECT'){e.preventDefault();this.closeSettings();}});
+          editor.focus();void this.settingsView.init();return;
+        }
+      }catch{/* The browser harness or a blocked child can still open settings inline. */this.profileEditorWindow?.close();this.profileEditorWindow=null;}
+    }
     this.settingsHost.appendChild(this.settingsView.el);
     this.displayView.style.display = 'none';
     this.settingsHost.style.display = 'block';
@@ -556,6 +620,8 @@ export class App {
     this.settingsView.dispose();
     this.settingsView = null;
     this.onModel = null;
+    const editor=this.profileEditorWindow;this.profileEditorWindow=null;
+    if(editor&&!editor.closed)editor.close();
     clear(this.settingsHost);
     this.settingsHost.style.display = 'none';
     this.displayView.style.display = 'block';
@@ -615,12 +681,14 @@ export class App {
     setText(this.titleEl, this.profile ? profileLabel(this.profile.id) : 'Flap Happy');
     const bits: string[] = [];
     if (model.statusText) bits.push(model.statusText);
+    if (this.strictLiveSelection() && this.profile && this.activeProfileSource==='fallback') bits.push('Fallback profile');
     if (this.usingSim) bits.push('DEMO');
     if (model.mode === 'noflaps') bits.push('no flaps');
     setText(this.statusEl, bits.join('  |  '));
     toggleClass(this.statusEl, 'warn', model.link !== 'live');
     if (this.pinBtn) toggleClass(this.pinBtn, 'on', this.settings.ui.always_on_top);
     this.paintSaveButton();
+    this.paintProfileControls();
     if (this.onModel) this.onModel();
     this.publishCockpit();
   }
@@ -633,6 +701,7 @@ export class App {
       ready: true,
       profile: this.profile,
       noProfileMessage: this.profile ? undefined : this.noProfileMessage,
+      profileSource:this.profile?this.activeProfileSource:undefined,
       sample: this.lastSample,
       receivedAt: this.lastRx,
       ballast: this.ballast.f,

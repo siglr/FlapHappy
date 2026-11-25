@@ -1,3 +1,4 @@
+import { normalizeWsgOverrides } from './wsg-overrides';
 import { SETTINGS_SCHEMA, type Settings } from './types';
 import { defaultAglScale, feetToMetres, roundMetres, type SpeedUnit } from './units';
 import { clamp01 } from './profile';
@@ -7,12 +8,14 @@ export function defaultSettings(): Settings {
     schema: SETTINGS_SCHEMA,
     last_profile_id: null,
     active_by_title: {},
+    profile_selection: { mode: 'auto', manualId: null, fallbackId: null },
     ballast_by_profile: {},
     units: 'kt',
     height: 'ft',
     agl: defaultAglScale(),
     ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, show_ballast: true, show_agl: true, show_transitions: false, show_wind: true, bar_shading: true },
     wsg_profiles_enabled: false,
+    wsg_profile_overrides: {},
     window: null,
   };
 }
@@ -51,6 +54,7 @@ export function normalizeSettings(raw: unknown): Settings {
     schema: SETTINGS_SCHEMA,
     last_profile_id: typeof r.last_profile_id === 'string' ? r.last_profile_id : null,
     active_by_title: byTitle,
+    profile_selection: { mode: obj(r.profile_selection).mode === 'manual' ? 'manual' : 'auto', manualId: typeof obj(r.profile_selection).manualId === 'string' ? obj(r.profile_selection).manualId as string : null, fallbackId: typeof obj(r.profile_selection).fallbackId === 'string' ? obj(r.profile_selection).fallbackId as string : null },
     ballast_by_profile: ballast,
     units,
     height,
@@ -73,6 +77,7 @@ export function normalizeSettings(raw: unknown): Settings {
       bar_shading: ui.bar_shading !== false,
     },
     wsg_profiles_enabled: r.wsg_profiles_enabled === true,
+    wsg_profile_overrides: normalizeWsgOverrides(r.wsg_profile_overrides),
     window: win,
   };
 }

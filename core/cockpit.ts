@@ -7,6 +7,7 @@ export interface CockpitState {
   profile: Profile | null;
   /** Current live aircraft has no selected profile; keep cockpit and desktop consistent. */
   noProfileMessage?: string;
+  profileSource?: 'manual'|'assigned'|'local'|'fallback'|'none';
   sample: SimSample | null;
   /** When the desktop app last received `sample`, in ms. */
   receivedAt: number;

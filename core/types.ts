@@ -1,3 +1,5 @@
+import type { WsgOverrideMap } from './wsg-overrides';
+
 export const PROFILE_SCHEMA = 'flaphappy.profile/3';
 export const SETTINGS_SCHEMA = 'flaphappy.settings/1';
 
@@ -95,6 +97,7 @@ export interface Settings {
   schema: typeof SETTINGS_SCHEMA;
   last_profile_id: string | null;
   active_by_title: Record<string, string>;
+  profile_selection: { mode: 'auto' | 'manual'; manualId: string | null; fallbackId: string | null };
   ballast_by_profile: Record<string, number>;
   /** How speeds are shown. Profile files are stored in metres per second. */
   units: 'kt' | 'kmh';
@@ -121,5 +124,6 @@ export interface Settings {
   };
   /** Optional anonymous WSG profile browsing; off by default. */
   wsg_profiles_enabled: boolean;
+  wsg_profile_overrides: WsgOverrideMap;
   window: WindowBounds | null;
 }

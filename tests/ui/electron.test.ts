@@ -306,10 +306,18 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
         expect(await panel.locator('.fh-fit').isVisible()).toBe(false);
       };
       await aircraft('Unlisted Alpha'); await noProfile();
-      await page.click('.fh-cog'); await page.waitForSelector('.fh-profile-select');
-      await page.selectOption('.fh-profile-select','strict-b');
+      const childEvent=app.waitForEvent('window'); await page.click('.fh-cog'); const editor=await childEvent;
+      await editor.waitForSelector('.fh-profile-select'); expect(await page.locator('.fh-profile-controls').isVisible()).toBe(true);
+      await editor.selectOption('.fh-profile-select','strict-b');
       await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-b');
-      await page.click('.fh-settings .fh-back');
+      await editor.click('.fh-settings .fh-back');
+      await page.waitForFunction(()=> !(window as any).__flapHappy.app.settingsOpen);
+      const reopenEvent=app.waitForEvent('window');await page.click('.fh-cog');const reopened=await reopenEvent;
+      await reopened.waitForSelector('.fh-profile-select');
+      expect(await reopened.locator('.fh-profile-select').inputValue()).toBe('strict-b');
+      await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('Profiles'))!.close());
+      await page.waitForFunction(()=> !(window as any).__flapHappy.app.settingsOpen);
+      expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length)).toBe(1);
       await panel.waitForFunction(()=>document.querySelector<HTMLElement>('.fh-fit')?.style.display!=='none');
       expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.active_by_title['Unlisted Alpha'])).toBe('strict-b');
       await aircraft('Different unknown'); await noProfile();
@@ -322,6 +330,16 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
       await page.waitForFunction(()=>document.querySelector('.fh-barmsg')?.textContent?.includes('WSG WSG-EXACT'));
       await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('WSG WSG-EXACT'),{}, {polling:100,timeout:10000});
       expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile===null)).toBe(true);
+      await page.selectOption('.fh-profile-choice','strict-b');
+      await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='fallback');
+      await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('Fallback profile: strict-b'),{}, {polling:100,timeout:10000});
+      await page.selectOption('.fh-profile-mode','manual'); await page.selectOption('.fh-profile-choice','strict-a');
+      await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='manual'&&(window as any).__flapHappy.profileId()==='strict-a');
+      await aircraft('Yet another aircraft'); await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='manual');
+      expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.active_by_title['Yet another aircraft'])).toBeUndefined();
+      expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.profile_selection.fallbackId)).toBe('strict-b');
+      await page.selectOption('.fh-profile-mode','auto'); await page.selectOption('.fh-profile-choice','');
+      await noProfile();
     } finally { await browser?.close(); await app.close(); fs.rmSync(ud,{recursive:true,force:true}); }
   });
 

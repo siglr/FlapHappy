@@ -101,6 +101,9 @@ async function createWindow(compact: boolean): Promise<void> {
       sandbox: true,
     },
   });
+  w.webContents.setWindowOpenHandler(({url,frameName}) => url==='about:blank'&&frameName==='flaphappy-profiles'
+    ? {action:'allow',overrideBrowserWindowOptions:{title:APP_NAME+' - Profiles',parent:w,width:Math.min(760,screen.getDisplayMatching(w.getBounds()).workArea.width-20),height:Math.min(760,screen.getDisplayMatching(w.getBounds()).workArea.height-40),minWidth:460,minHeight:400,autoHideMenuBar:true,frame:true,show:true,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}}}
+    : {action:'deny'});
   w.setMenuBarVisibility(false);
   const prev = win;
   win = w;

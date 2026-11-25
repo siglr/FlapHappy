@@ -53,7 +53,8 @@ function paint(state: CockpitState): void {
     if (state.ready && state.noProfileMessage) setText(note, state.noProfileMessage);
     return;
   }
-  note.style.display = 'none';
+  note.style.display = state.profileSource==='fallback'?'block':'none';
+  if(state.profileSource==='fallback')setText(note,'Fallback profile: '+state.profile.id);
   strip.el.style.display = '';
   const profile = state.profile as Profile;
   const changedProfile = profile.id !== profileId;
