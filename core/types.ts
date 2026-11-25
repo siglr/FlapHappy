@@ -86,6 +86,8 @@ export interface ProfileMeta {
   incomplete: boolean;
   match: string[];
   source: 'user' | 'preset';
+  /** True only for in-memory examples, never for a file on disk. */
+  virtual?: boolean;
   error?: string;
 }
 

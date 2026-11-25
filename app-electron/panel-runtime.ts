@@ -1,9 +1,9 @@
-import { defaultSettings } from '../core/settings';
+import { defaultSettings,forgetLocalProfile } from '../core/settings';
 import type { CockpitState } from '../core/cockpit';
 import type { ProfileStore, SimSample } from '../core/sim';
 import type { Profile, Settings } from '../core/types';
 import { initialBallast } from '../core/ballast';
-import { clamp01 } from '../core/profile';
+import { clamp01,sanitizeId } from '../core/profile';
 import { aircraftBindingKey,resolveProfileChoice,selectProfileId } from '../core/select';
 import { usesManualBallast } from '../core/weight';
 import { wsgFlightProfile } from '../core/wsg-flight';
@@ -64,6 +64,18 @@ export class PanelRuntime {
     await this.refresh();
   }
 
+  async removeLocalProfile(id:string):Promise<void>{
+    if(id!==sanitizeId(id)||!id)throw Error('Invalid local profile ID');
+    await this.write(async()=>{
+      const meta=(await this.store.list()).find(p=>p.id===id);
+      if(!meta||meta.virtual)throw Error('Only saved local profiles may be deleted.');
+      await this.store.remove(id);
+      const settings=await this.settings();forgetLocalProfile(settings,id);delete this.ballastByProfile[id];
+      await this.store.setSettings(settings);
+    });
+    await this.refresh();
+  }
+
   async setBallast(f: number, profileId: string | null = this.state.profile?.id ?? null): Promise<boolean> {
     if (!profileId || this.state.profile?.id !== profileId || !usesManualBallast(this.state.profile) || typeof f !== 'number' || !isFinite(f)) return false;
     const fraction = clamp01(f);
@@ -82,7 +94,7 @@ export class PanelRuntime {
     const settings = await this.settings();
     const allMetas = await this.store.list();
     const strict=this.strictSelection();
-    const metas=this.sourceKind==='simulated'?allMetas:allMetas.filter(m=>!(m.source==='preset'&&m.id.startsWith('demo-')));
+    const metas=this.sourceKind==='simulated'?allMetas:allMetas.filter(m=>!m.virtual);
     let profile:Profile|null=null;
     let source:CockpitState['profileSource']='none', noProfileMessage:string|undefined,detectedWsgVariant:string|null=null;
     let id:string|null=null;
@@ -142,7 +154,7 @@ export class PanelRuntime {
     if (oldLvar !== profile?.current_flap.lvar_name) this.setLvar(profile?.current_flap.lvar_name ?? null);
     if (changed && profile) this.notifyBallast(profile.id, ballast);
     this.notifyActive?.(this.state);
-    if (profile && !profile.wsg && metas.some(m=>m.id===profile!.id&&!(m.source==='preset'&&m.id.startsWith('demo-'))) && settings.last_profile_id !== profile.id) {
+    if (profile && !profile.wsg && metas.some(m=>m.id===profile!.id&&!m.virtual) && settings.last_profile_id !== profile.id) {
       const selectedId = profile.id;
       await this.write(async () => {
         if (g !== this.generation) return;

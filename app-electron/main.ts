@@ -227,7 +227,7 @@ function registerIpc(): void {
   ipcMain.handle('store:list', () => store.list());
   ipcMain.handle('store:load', (_e, id: string) => store.load(id));
   ipcMain.handle('store:save', async (_e, p: Profile) => { await store.save(p); await panelRuntime?.refresh(); });
-  ipcMain.handle('store:remove', async (_e, id: string) => { await store.remove(id); await panelRuntime?.refresh(); });
+  ipcMain.handle('store:remove', async (_e, id: string) => { if(!panelRuntime||quitting)throw Error('Profile session unavailable.');await panelRuntime.removeLocalProfile(id); });
   ipcMain.handle('store:getSettings', () => panelRuntime ? panelRuntime.settings() : store.getSettings());
   ipcMain.handle('store:setSettings', async (_e, s: Settings) => {
     if (!panelRuntime || quitting) return;

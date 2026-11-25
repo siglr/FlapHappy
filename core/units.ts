@@ -159,8 +159,8 @@ export function formatTick(kt: number, unit: SpeedUnit): string {
   return String(Math.round(knotsToUnit(kt, unit)));
 }
 
-/** Editor field: the chosen display unit, as a whole number. */
+/** Editor field: at most one fractional digit; the underlying value is not changed. */
 export function formatSpeedField(kt: number | null, unit: SpeedUnit): string {
   if (kt === null || !isFinite(kt)) return '';
-  return String(Math.round(knotsToUnit(kt, unit)));
+  return String(Math.round(knotsToUnit(kt, unit)*10)/10);
 }

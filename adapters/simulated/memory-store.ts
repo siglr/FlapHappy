@@ -26,7 +26,7 @@ export class MemoryProfileStore implements ProfileStore {
   }
 
   async list(): Promise<ProfileMeta[]> {
-    return [...Array.from(this.profiles.values()),...(this.demoExamples?DEMO_EXAMPLES.filter(p=>!this.profiles.has(p.id)):[])].map(metaOf);
+    return [...Array.from(this.profiles.values()).map(metaOf),...(this.demoExamples?DEMO_EXAMPLES.filter(p=>!this.profiles.has(p.id)).map(p=>({...metaOf(p),virtual:true})):[])];
   }
 
   async load(id: string): Promise<Profile> {

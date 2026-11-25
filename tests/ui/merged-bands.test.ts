@@ -20,6 +20,6 @@ it('same merged groups and exact handle in desktop and cockpit',async()=>{
    expect(await page.locator(prefix+'.fh-ticktext').count()).toBe(6);
  }
  await d.click('.fh-cog');
- expect(await d.locator('.fh-exclude-transition input').first().isChecked()).toBe(true);
+ expect(await d.locator('.fh-exclude-transition').first().inputValue()).toBe('hide');
  await d.close();await c.close();
 });

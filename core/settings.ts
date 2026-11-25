@@ -91,3 +91,12 @@ export function normalizeSettings(raw: unknown): Settings {
     panel_destination:normalizePanelDestination(r.panel_destination),
   };
 }
+
+/** Clear only references to a deleted local profile, never another variant. */
+export function forgetLocalProfile(settings:Settings,id:string):void {
+  if(settings.last_profile_id===id)settings.last_profile_id=null;
+  if(settings.profile_selection.manualId===id)settings.profile_selection.manualId=null;
+  if(settings.profile_selection.fallbackId===id)settings.profile_selection.fallbackId=null;
+  for(const key of Object.keys(settings.active_by_title))if(settings.active_by_title[key]===id)delete settings.active_by_title[key];
+  delete settings.ballast_by_profile[id];
+}

@@ -66,6 +66,7 @@ async function clickBallast(panel: Page, fraction: number) {
 describe.skipIf(!canRun)('visible control window and optional external panel', () => {
   it('shows desktop session status and lets keyboard tab navigation retain unsaved profile edits',async()=>{
     const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-desktop-settings-'));
+    const local=makeProfile(3,{id:'local-fixture'});local.weight_kg={light:null,heavy:null};fs.mkdirSync(path.join(ud,'profiles'));fs.writeFileSync(path.join(ud,'profiles','local-fixture.json'),exportProfileJson({...local,source:'user'}));
     const {app,page}=await launch(ud);
     try{
       await page.waitForSelector('.fh-main-connection');
@@ -78,15 +79,18 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
       expect(await page.locator('.fh-main-external-state').textContent()).toBe('Closed');
       const created=app.waitForEvent('window');await page.click('.fh-main-settings');const editor=await created;
       await editor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');
-      const display=editor.getByRole('tab',{name:'Display'});await display.focus();await editor.keyboard.press('ArrowRight');
+      const display=editor.getByRole('tab',{name:'Display'});
+      await display.focus();await editor.keyboard.press('ArrowRight');
       await editor.waitForSelector('.fh-settings-tab-panel[aria-selected="true"]');
       await editor.keyboard.press('ArrowRight');await editor.waitForSelector('.fh-settings-tab-profiles[aria-selected="true"]');
+      expect(await editor.locator('.fh-profile-select option[value^="demo-"]').count()).toBe(0);
+      await editor.selectOption('.fh-profile-select','local-fixture');
       const field=editor.locator('[data-path="vs_min.no_ballast_kt"]');await field.waitFor();const original=await field.inputValue();
       await field.fill('33');
       await editor.getByRole('tab',{name:'Display'}).click();expect(await editor.locator('.fh-save').isVisible()).toBe(false);
       await editor.getByRole('tab',{name:'Profiles'}).click();expect(await field.inputValue()).toBe('33');expect(await editor.locator('.fh-save').isEnabled()).toBe(true);
       await editor.locator('.fh-discard-edits').click();expect(await field.inputValue()).toBe(original);
-      expect(fs.readdirSync(path.join(ud,'profiles'))).toEqual([]);
+      expect(fs.readdirSync(path.join(ud,'profiles'))).toEqual(['local-fixture.json']);
       await editor.locator('.fh-back').click();
       const panel=await openExternal(app,page);expect(await panel.locator('.fh-fit').isVisible()).toBe(true);
       expect(await page.locator('.fh-main-external-state').textContent()).toBe('Open');
@@ -326,4 +330,19 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
       fs.rmSync(ud,{recursive:true,force:true});
     }
   });
+});
+
+// The real profile editor, main session and cockpit feed must agree after deletion.
+it.skipIf(!canRun)('deletes only a saved local profile after named confirmation and clears panel assignments',async()=>{
+ const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-delete-profile-')),id='demo-user-copy',other='other-local';
+ fs.mkdirSync(path.join(ud,'profiles'));for(const name of [id,other])fs.writeFileSync(path.join(ud,'profiles',name+'.json'),exportProfileJson({...makeProfile(3,{id:name}),source:'user'}));
+ fs.writeFileSync(path.join(ud,'settings.json'),JSON.stringify({schema:'flaphappy.settings/1',last_profile_id:id,profile_selection:{mode:'manual',manualId:id,fallbackId:id},active_by_title:{aircraft:id,other:other}}));
+ const {app,page}=await launch(ud);try{
+   await waitUntil(async()=> (await getFeed()).profile?.id===id);
+   const editor=await openEditor(app,page);expect(await editor.locator('.fh-profile-select option[value="demo-js3"]').count()).toBe(0);expect(await editor.locator('.fh-profile-select option[value="'+id+'"]').count()).toBe(1);
+   editor.once('dialog',async d=>{expect(d.message()).toContain('demo-user-copy');await d.dismiss();});await editor.click('.fh-delete-profile');expect(fs.existsSync(path.join(ud,'profiles',id+'.json'))).toBe(true);
+   editor.once('dialog',d=>d.accept());await editor.click('.fh-delete-profile');await waitUntil(()=>!fs.existsSync(path.join(ud,'profiles',id+'.json')));
+   await waitUntil(async()=> (await getFeed()).profile===null);expect(fs.existsSync(path.join(ud,'profiles',id+'.json.deleted.bak'))).toBe(true);expect(fs.existsSync(path.join(ud,'profiles',other+'.json'))).toBe(true);
+   const saved=settingsOnDisk(ud);expect(saved.profile_selection.manualId).toBeNull();expect(saved.profile_selection.fallbackId).toBeNull();expect(saved.active_by_title).toEqual({other:other});
+ }finally{await app.close();}
 });

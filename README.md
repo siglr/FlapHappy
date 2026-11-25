@@ -119,7 +119,7 @@ A profile has N flap rows (any N from 0 up; each row: label, a sim index you typ
 - Extra warnings were added when the profile has more rows than the sim reports handle positions for ("live count" check).
 - The renderer is compiled with esbuild target `es2015` (not newer) to match the Coherent engine.
 - There is no `--serve` mode; the browser harness is `npm run harness`.
-- `profiles/as33-18m.json`, `profiles/as33-15m.json`, and `profiles/js3.json` are copied into an empty profile folder on first launch. AS33-18m opens first. An id that is already present is not written again.
+- The three bundled examples are virtual Demo profiles, available offline. Live uses the published WSG.org catalog and local profiles. Existing saved starter files keep their IDs and are never reseeded.
 - The dev panel, scenarios and fault injection (index missing/out of range, percent only, L: var only, unreadable, stale) exist so the whole fallback chain can be exercised without the sim.
 
 ## Tests
@@ -144,7 +144,7 @@ Settings → In-sim Panel: choose the detected MSFS 2024 Community folder or an 
 Enable installs the verified bundled panel, disabling removes a verified physical install. An installed older package exposes Update and a Settings badge. Equal or newer versions are not overwritten. This is a bundled-version check, not a desktop release checker. Close MSFS before making changes. A custom package may be linked by MSFS Addons Linker; Flap Happy never creates or removes those links. Unlink before removing. Changing destination does not move the existing package; remove/unlink the old installation explicitly first. If a target is unfamiliar, damaged, duplicated or linked to another package, the app refuses to overwrite it. Updates stage on the destination volume outside Community and roll back on a failed swap.
 
 ### Merged flap bands
-In Settings, check **Merge adjoining flap bands (exclude divider)** for a transition to omit that speed divider and merge its two adjacent flap labels. Consecutive exclusions form a single band. The actual simulator handle and its exact label are preserved. The optional exclusion is saved with each transition; legacy profiles remain unchanged, and excluded transition speeds are not needed until the divider is shown again.
+In Settings, choose **Hide** in its In-flight display column for a transition to omit that speed divider and merge its two adjacent flap labels. Consecutive exclusions form a single band. The actual simulator handle and its exact label are preserved. The optional exclusion is saved with each transition; legacy profiles remain unchanged, and excluded transition speeds are not needed until the divider is shown again.
 
 ### Responsive speed-trigger labels
 When **Flap transitions** is enabled, the whole-number speed labels occupy a single row where their measured text widths fit. Crowded labels alternate between two rows while remaining aligned with the real dividers. Extremely dense values remain available on the dividers rather than overlapping neighboring text. The IAS calculations and units are unchanged.
@@ -157,6 +157,10 @@ Open **Settings > Display** to choose preferred speed and altitude units. These 
 
 ### Desktop control window and Settings
 The main window displays simulator connection, detected aircraft, active profile and source, and whether the external panel is open. **Edit profiles** opens the detailed editor, while **Settings** opens three keyboard-accessible areas: **Display** (global units, display toggles, AGL and appearance), **In-sim Panel** (package and auto-hide), and **Profiles** (glider definitions and local adjustments). Switching between Settings areas does not save or discard profile edits. Panel rendering and data formats are unchanged.
+
+### Profile editing
+
+The knot or metric speed inputs use the app-wide speed unit and accept one decimal place. Unedited saved values keep their original precision; native profile JSON still uses m/s. Light, Heavy and In-flight display share one transition row. Demo examples are available in the Demo session picker, not in Edit profiles. Delete profile is shown only for saved local profiles, with named confirmation; deletion clears references to that ID and retains a recoverable backup on disk. WSG defaults and virtual examples cannot be deleted. A retained personal WSG stall pair needs explicit confirmation if its reference weights change or its recorded detent is not the most-positive landing flap. Hiding a transition does not change the stall reference. An unconfirmed older pair is preserved locally but not used as stall IAS.
 
 ### Ribbon bounds
 

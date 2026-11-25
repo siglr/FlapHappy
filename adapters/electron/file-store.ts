@@ -65,7 +65,7 @@ export class FileProfileStore implements ProfileStore {
         out.push({ id, filename: name, incomplete: true, match: [], source: 'user', error: e instanceof Error ? e.message : String(e) });
       }
     }
-    if(this.demoExamples)for(const p of DEMO_EXAMPLES)if(!out.some(m=>m.id===p.id))out.push({id:p.id,filename:p.id+'.json',incomplete:!validateProfile(p).ok,match:p.match.title_contains.slice(),source:'preset'});
+    if(this.demoExamples)for(const p of DEMO_EXAMPLES)if(!out.some(m=>m.id===p.id))out.push({id:p.id,filename:p.id+'.json',incomplete:!validateProfile(p).ok,match:p.match.title_contains.slice(),source:'preset',virtual:true});
     out.sort((a, b) => a.filename.localeCompare(b.filename));
     return out;
   }
@@ -87,8 +87,11 @@ export class FileProfileStore implements ProfileStore {
   }
 
   async remove(id: string): Promise<void> {
-    const f = this.fileFor(id);
-    if (fs.existsSync(f)) fs.renameSync(f, f + '.deleted.bak');
+    if(!id||id!==sanitizeId(id))throw Error('Invalid local profile ID');
+    const f=this.fileFor(id);
+    if(!fs.existsSync(f))throw Error('Only saved local profiles may be deleted.');
+    let backup=f+'.deleted.bak',i=1;while(fs.existsSync(backup))backup=f+'.deleted.'+(i++)+'.bak';
+    fs.renameSync(f,backup);
   }
 
   async getSettings(): Promise<Settings> {
