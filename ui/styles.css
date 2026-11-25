@@ -296,3 +296,54 @@ button, input, select { font-family: inherit; font-size: 14px; }
 
 .fh-badge.mapped { color:#fff; background:#275b82; }
 .fh-exclude-transition { margin-left:22px; font-size:12px; color:#afb9c9; }
+
+/* Desktop control app only; the shared cockpit/ribbon layout is unchanged. */
+.fh-main-display { max-width:960px; margin:0 auto; }
+.fh-main-display .fh-main-controls { padding:18px; }
+.fh-main-heading { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; }
+.fh-main-heading > div { flex:1 1 220px; min-width:0; }
+.fh-main-heading .fh-btn { margin:0 0 8px 8px; min-height:36px; }
+.fh-main-heading h1 { margin-bottom:4px; letter-spacing:.15px; }
+.fh-main-heading .fh-main-copy { font-size:12px; margin-bottom:14px; }
+.fh-main-status-grid { display:flex; flex-wrap:wrap; margin:0 -4px 13px; }
+.fh-main-status-card { flex:1 1 160px; min-width:0; padding:12px; margin:4px; border-radius:7px; border:1px solid #2a3b50; background:#192432; }
+.fh-main-kicker { font-size:11px; font-weight:600; color:#a9b8c9; text-transform:uppercase; letter-spacing:.7px; margin-bottom:6px; }
+.fh-main-value { color:#edf4fd; font-size:16px; font-weight:600; overflow-wrap:break-word; }
+.fh-main-connection { color:#ffc557; }
+.fh-main-connection.fh-main-live { color:#77d5ac; }
+.fh-main-meta { margin-top:4px; font-size:12px; color:#a9b8c9; }
+.fh-main-section { border-top:1px solid #2a3b50; padding:12px 0 0; margin-top:8px; }
+.fh-main-section-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.fh-main-section-heading h2 { margin:0 5px 5px 0; font-size:15px; font-weight:600; }
+.fh-main-section-heading .fh-btn { margin:0 0 5px; }
+.fh-main-display .fh-profile-controls { padding:2px 0 10px; margin:0 -4px; }
+.fh-main-display .fh-profile-controls label { min-width:0; flex:1 1 152px; margin:0 4px 8px; color:#b8c8d9; font-size:12px; }
+.fh-main-display .fh-profile-controls .fh-in { min-width:0; height:36px; }
+.fh-main-display .fh-picker-wsg-status { flex:1 0 100%; margin:0 4px; font-size:12px; }
+.fh-main-external-state { padding:3px 10px; border:1px solid #42566d; border-radius:20px; color:#c7e0f3; font-size:12px; }
+.fh-main-external .fh-hint { margin-bottom:0; overflow-wrap:break-word; }
+.fh-main-display .fh-main-external .fh-btn { min-height:36px; }
+.fh-settings-tabbed { padding-bottom:18px; }
+.fh-settings-tabbed [hidden] { display:none !important; }
+.fh-settings-tabbed .fh-settings-tabs { display:flex; flex-wrap:wrap; border-bottom:1px solid #354559; margin:8px 0 14px; padding-bottom:3px; }
+.fh-settings-tabbed .fh-settings-tab { min-width:90px; flex:1 1 90px; margin:3px; min-height:36px; border-color:#364960; }
+.fh-settings-tabbed .fh-settings-tab.on { color:#fff; background:#175c92; border-color:#4599d9; }
+.fh-settings-tabbed .fh-settings-tab:focus-visible,.fh-main-display .fh-btn:focus-visible { outline:2px solid #f0c36d; outline-offset:2px; }
+.fh-settings-tabbed .fh-settings-pane { min-width:0; }
+.fh-settings-tabbed .fh-settings-pane h2 { font-size:20px; margin:4px 0 4px; }
+.fh-settings-tabbed .fh-settings-pane > .fh-hint { margin:0 0 13px; overflow-wrap:break-word; }
+.fh-settings-tabbed .fh-global-agl { padding:12px; margin:10px 0; background:#111b28; border:1px solid #263345; border-radius:8px; }
+.fh-settings-tabbed .fh-arow { flex-wrap:wrap; min-width:0; }
+.fh-settings-tabbed .fh-arow > * { min-width:0; }
+.fh-settings-tabbed .fh-global-agl .fh-aglfield { flex:1 1 120px; }
+.fh-settings-tabbed .fh-profile-picker,.fh-settings-tabbed .fh-panel-path { max-width:100%; }
+.fh-settings-tabbed .fh-panel-install { padding:12px; border:1px solid #29394b; border-radius:8px; background:#111b28; }
+.fh-settings-tabbed .fh-panel-install .fh-hint { overflow-wrap:break-word; }
+@media (max-width:420px){
+ .fh-main-display .fh-main-controls { padding:12px; }
+ .fh-main-status-card { flex-basis:140px; padding:9px; }
+ .fh-settings-tabbed .fh-settings-tab { min-width:70px; flex-basis:70px; padding:6px; }
+ .fh-settings-tabbed .fh-global-agl,.fh-settings-tabbed .fh-panel-install { padding:8px; }
+ .fh-settings-tabbed .fh-arow .fh-wide { max-width:100%; }
+ .fh-settings-tabbed .fh-display-options .fh-optrow { flex-wrap:wrap; }
+}

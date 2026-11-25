@@ -27,6 +27,7 @@ export interface ImportDraft {
 }
 
 type Field = HTMLInputElement | HTMLSelectElement;
+export type SettingsArea='display'|'panel'|'profiles';
 
 export class SettingsView {
   readonly el: HTMLElement;
@@ -65,11 +66,15 @@ export class SettingsView {
   private validBox: HTMLElement;
   private advanced: HTMLElement;
   private appBox: HTMLElement;
+  private inSimBox:HTMLElement;
+  private areas:Partial<Record<SettingsArea,HTMLElement>>={};
+  private areaButtons:Partial<Record<SettingsArea,HTMLButtonElement>>={};
+  private activeArea:SettingsArea='profiles';
   private dragStop: (() => void) | null = null;
   private aglInputs: HTMLInputElement[] = [];
   private aglUnits: HTMLElement[] = [];
 
-  constructor(private app: App) {
+  constructor(private app: App,initialArea:SettingsArea='profiles') {
     this.saveBtn = h('button', { class: 'fh-btn fh-save', type: 'button', disabled: true, onclick: () => void this.saveNow() }, 'Save') as HTMLButtonElement;
     this.saveState = h('span', { class: 'fh-savestate' });
     this.displayBox=h('div',{class:'fh-display-settings'});
@@ -82,23 +87,40 @@ export class SettingsView {
     this.validBox = h('div', { class: 'fh-validbox' });
     this.advanced = h('div', { class: 'fh-advanced' });
     this.appBox = h('div', { class: 'fh-appbox' });
+    this.inSimBox=h('div',{class:'fh-in-sim-settings'});
 
     const back = h('button', { class: 'fh-btn fh-back', type: 'button', onclick: () => this.close() }, app.info.mainWindow ? 'Close settings' : '\u2190 Back to display');
-    this.el = h(
-      'div',
-      { class: 'fh-settings' },
-      h('div', { class: 'fh-sethead' }, back, h('div', { class: 'fh-settitle' }, 'Settings'), this.saveBtn, this.saveState),
-      this.displayBox,
-      this.profileBar,
-      this.banner,
-      this.table,
-      this.tools,
-      this.panel,
-      this.liveLine,
-      this.validBox,
-      this.advanced,
-      this.appBox,
-    );
+    const head=h('div',{class:'fh-sethead'},back,h('div',{class:'fh-settitle'},'Settings'),this.saveBtn,this.saveState);
+    if(app.info.mainWindow){
+      this.displayOptionsOpen=true;
+      const areaNames:Array<[SettingsArea,string]>=[['display','Display'],['panel','In-sim Panel'],['profiles','Profiles']];
+      this.areas.display=h('section',{class:'fh-settings-pane fh-settings-display',role:'tabpanel',id:'fh-area-display','aria-labelledby':'fh-tab-display'},h('h2',null,'Display'),h('p',{class:'fh-hint'},'App-wide preferences for both flight displays.'),this.displayBox,this.appBox);
+      this.areas.panel=h('section',{class:'fh-settings-pane fh-settings-panel',role:'tabpanel',id:'fh-area-panel','aria-labelledby':'fh-tab-panel'},h('h2',null,'In-sim Panel'),h('p',{class:'fh-hint'},'Manage the MSFS toolbar package and cockpit-only behavior.'),this.inSimBox);
+      this.areas.profiles=h('section',{class:'fh-settings-pane fh-settings-profiles',role:'tabpanel',id:'fh-area-profiles','aria-labelledby':'fh-tab-profiles'},h('h2',null,'Profiles'),h('p',{class:'fh-hint'},'Select a glider or edit its saved flap and weight definitions.'),this.profileBar,this.banner,this.table,this.tools,this.panel,this.liveLine,this.validBox,this.advanced);
+      const tabs=h('div',{class:'fh-settings-tabs',role:'tablist','aria-label':'Settings areas'});
+      areaNames.forEach(([key,label],i)=>{
+        const button=h('button',{type:'button',role:'tab',class:'fh-btn fh-settings-tab fh-settings-tab-'+key,id:'fh-tab-'+key,'aria-controls':'fh-area-'+key,onclick:()=>this.selectArea(key)},label) as HTMLButtonElement;
+        button.addEventListener('keydown',e=>{
+          let next:number|undefined;if(e.key==='ArrowRight')next=(i+1)%areaNames.length;else if(e.key==='ArrowLeft')next=(i+areaNames.length-1)%areaNames.length;else if(e.key==='Home')next=0;else if(e.key==='End')next=areaNames.length-1;
+          if(next!==undefined){e.preventDefault();const to=areaNames[next][0];this.selectArea(to);this.areaButtons[to]?.focus();}
+        });
+        tabs.appendChild(button);this.areaButtons[key]=button;
+      });
+      this.el=h('div',{class:'fh-settings fh-settings-tabbed'},head,tabs,this.areas.display,this.areas.panel,this.areas.profiles);
+      this.selectArea(initialArea);
+    }else{
+      this.el=h('div',{class:'fh-settings'},head,this.displayBox,this.profileBar,this.banner,this.table,this.tools,this.panel,this.liveLine,this.validBox,this.advanced,this.appBox);
+    }
+  }
+
+  selectArea(area:SettingsArea):void{
+    if(!this.app.info.mainWindow)return;
+    this.activeArea=area;
+    (Object.keys(this.areas) as SettingsArea[]).forEach(key=>{
+      const pane=this.areas[key],button=this.areaButtons[key];if(pane)pane.hidden=key!==area;
+      if(button){button.setAttribute('aria-selected',String(key===area));button.tabIndex=key===area?0:-1;button.classList.toggle('on',key===area);}
+    });
+    this.saveBtn.hidden=area!=='profiles';this.saveState.hidden=area!=='profiles';
   }
 
   async init(): Promise<void> {
@@ -308,7 +330,7 @@ export class SettingsView {
         customFile, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null),
       newForm);
     this.profileBar.appendChild(profile);
-    this.displayBox.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, 'Display (app-wide preferences)'), h('div',{class:'fh-hint'},'These units apply to every glider and both panels.'),toggles));
+    this.displayBox.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, this.app.info.mainWindow?'Units and flight display':'Display (app-wide preferences)'), h('div',{class:'fh-hint'},'These units apply to every glider and both panels.'),toggles));
     if (!this.draft) this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Create a local profile or open a JSON file to start.'));
   }
 
@@ -720,24 +742,10 @@ export class SettingsView {
     const text = (label: string, get: () => string, set: (v: string) => void, ph = '') =>
       h('div', { class: 'fh-arow' }, h('label', null, label), h('input', { class: 'fh-in fh-wide', type: 'text', value: get(), placeholder: ph, oninput: (e: Event) => { set((e.target as HTMLInputElement).value); this.edited(false); } }));
 
-    const height = this.app.settings.height === 'm' ? 'm' : 'ft';
-    this.aglInputs = [];
-    this.aglUnits = [];
-    const aglField = (label: string, key: 'bottom_m' | 'top_m' | 'low_m' | 'high_m') => {
-      const input = h('input', { class: 'fh-in', type: 'number', min: '0', step: '1', value: String(metresToHeight(this.app.settings.agl[key], height)), oninput: (e: Event) => { const v = numberOrNull((e.target as HTMLInputElement).value); if (v === null || v < 0) return; this.app.setAglEdge(key, heightToMetres(v, this.app.settings.height === 'm' ? 'm' : 'ft')); } }) as HTMLInputElement;
-      const unitEl = h('span', { class: 'fh-pct' }, heightUnitLabel(height));
-      this.aglInputs.push(input);
-      this.aglUnits.push(unitEl);
-      return h('span', { class: 'fh-aglfield' }, h('label', null, label), input, unitEl);
-    };
     const body = h('div', { class: 'fh-advbody' },
-      h('div', { class: 'fh-subtitle' }, 'Display'),
+      h('div', { class: 'fh-subtitle' }, 'Profile behavior'),
       num('Marker smoothing (ms, 0 = off)', () => d.marker_smoothing_ms, (v) => { d.marker_smoothing_ms = Math.max(0, v ?? 0); }, '50'),
-      h('div', { class: 'fh-arow' }, h('label', null, 'Bar shading'), h('label', { class: 'fh-slide' }, h('input', { type: 'checkbox', class: 'fh-bar-shading', 'aria-label': 'Bar shading', checked: this.app.settings.ui.bar_shading, onchange: (e: Event) => this.app.setBarShading((e.target as HTMLInputElement).checked) }), h('span', { class: 'fh-slidetrack' }, h('span', { class: 'fh-slideknob' })))),
-      h('div', { class: 'fh-subtitle' }, 'AGL bar'),
-      h('div', { class: 'fh-sub' }, 'The bar runs from Bottom to Top and turns green from Low to High.'),
-      h('div', { class: 'fh-arow' }, aglField('Bottom', 'bottom_m'), aglField('Top', 'top_m')),
-      h('div', { class: 'fh-arow' }, aglField('Low', 'low_m'), aglField('High', 'high_m')),
+      this.app.info.mainWindow?null:this.globalAglControls(),
       h('div', { class: 'fh-subtitle' }, 'Manual ballast fallback (profiles without both flying weights)'),
       h('div', { class: 'fh-arow' }, h('label', null, 'Default ballast'), h('input', { class: 'fh-in', type: 'number', min: '0', max: '100', step: '5', value: String(Math.round(d.ballast.default_fraction * 100)), oninput: (e: Event) => { const v = numberOrNull((e.target as HTMLInputElement).value); d.ballast.default_fraction = Math.max(0, Math.min(100, v ?? 0)) / 100; this.edited(false); } }), h('span', { class: 'fh-pct' }, '%')),
       h('div', { class: 'fh-arow' }, h('label', null, 'Drag snap'), h('input', { class: 'fh-in', type: 'number', min: '0', max: '100', step: '1', value: String(Math.round(d.ballast.drag_snap * 100)), oninput: (e: Event) => { const v = numberOrNull((e.target as HTMLInputElement).value); d.ballast.drag_snap = Math.max(0, Math.min(100, v ?? 0)) / 100; this.edited(false); } }), h('span', { class: 'fh-pct' }, '%')),
@@ -749,8 +757,28 @@ export class SettingsView {
     this.advanced.appendChild(details);
   }
 
+  private globalAglControls():HTMLElement{
+    const height = this.app.settings.height === 'm' ? 'm' : 'ft';
+    this.aglInputs = [];
+    this.aglUnits = [];
+    const aglField = (label: string, key: 'bottom_m' | 'top_m' | 'low_m' | 'high_m') => {
+      const input = h('input', { class: 'fh-in', type: 'number', min: '0', step: '1', value: String(metresToHeight(this.app.settings.agl[key], height)), oninput: (e: Event) => { const v = numberOrNull((e.target as HTMLInputElement).value); if (v === null || v < 0) return; this.app.setAglEdge(key, heightToMetres(v, this.app.settings.height === 'm' ? 'm' : 'ft')); } }) as HTMLInputElement;
+      const unitEl = h('span', { class: 'fh-pct' }, heightUnitLabel(height));
+      this.aglInputs.push(input);
+      this.aglUnits.push(unitEl);
+      return h('span', { class: 'fh-aglfield' }, h('label', null, label), input, unitEl);
+    };
+    return h('div',{class:'fh-global-agl'},
+      h('div', { class: 'fh-arow' }, h('label', null, 'Bar shading'), h('label', { class: 'fh-slide' }, h('input', { type: 'checkbox', class: 'fh-bar-shading', 'aria-label': 'Bar shading', checked: this.app.settings.ui.bar_shading, onchange: (e: Event) => this.app.setBarShading((e.target as HTMLInputElement).checked) }), h('span', { class: 'fh-slidetrack' }, h('span', { class: 'fh-slideknob' })))),
+      h('div', { class: 'fh-subtitle' }, 'AGL bar'),
+      h('div', { class: 'fh-sub' }, 'The bar runs from Bottom to Top and turns green from Low to High.'),
+      h('div', { class: 'fh-arow' }, aglField('Bottom', 'bottom_m'), aglField('Top', 'top_m')),
+      h('div', { class: 'fh-arow' }, aglField('Low', 'low_m'), aglField('High', 'high_m')));
+  }
+
   private renderAppBox(): void {
     clear(this.appBox);
+    clear(this.inSimBox);
     const app = this.app;
     const caps = app.host.capabilities;
     const u = app.settings.ui;
@@ -759,10 +787,11 @@ export class SettingsView {
     if (caps.opacity) rows.push(h('div', { class: 'fh-arow' }, h('label', null, 'External panel opacity'), h('input', { type: 'range', min: '0.3', max: '1', step: '0.05', value: String(u.opacity), oninput: (e: Event) => app.setOpacity(Number((e.target as HTMLInputElement).value)) })));
     rows.push(h('div', { class: 'fh-arow' }, h('label', null, 'Zoom'), h('input', { type: 'range', min: '0.5', max: '2', step: '0.1', value: String(u.zoom), oninput: (e: Event) => app.setZoom(Number((e.target as HTMLInputElement).value)) })));
     rows.push(h('div', { class: 'fh-arow' }, h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: 'fh-demo', checked: u.demo_mode, onchange: (e: Event) => app.setDemoMode((e.target as HTMLInputElement).checked) }), ' Demo mode: use simulated data instead of the sim')));
-    if (caps.files) {
-      rows.push(h('div',{class:'fh-arow'},h('label',{class:'fh-check'},h('input',{type:'checkbox',class:'fh-auto-hide-external',checked:u.auto_hide_external,onchange:(e:Event)=>app.setAutoHideExternal((e.target as HTMLInputElement).checked)}),' Auto-hide from external views (in-sim panel only)')));
-    }
-    if (app.host.panelStatus) rows.push(this.panelInstallBox());
+    const panelRows:HTMLElement[]=[];
+    if(caps.files)panelRows.push(h('div',{class:'fh-arow'},h('label',{class:'fh-check'},h('input',{type:'checkbox',class:'fh-auto-hide-external',checked:u.auto_hide_external,onchange:(e:Event)=>app.setAutoHideExternal((e.target as HTMLInputElement).checked)}),' Auto-hide from external views (in-sim panel only)')));
+    if(app.host.panelStatus)panelRows.push(this.panelInstallBox());
+    if(app.info.mainWindow){this.appBox.appendChild(this.globalAglControls());panelRows.forEach(row=>this.inSimBox.appendChild(row));}
+    else rows.push(...panelRows);
     rows.push(h('div', { class: 'fh-hint' }, 'Version ' + app.info.version + ' | data source: ' + (app.usingSim ? 'simulated' : app.info.source)));
     this.appBox.appendChild(h('details', { class: 'fh-details' }, h('summary', null, 'Window and app'), ...rows));
   }
@@ -771,7 +800,7 @@ export class SettingsView {
     const app=this.app, host=app.host;
     let busy=false, status:PanelInstallStatus|null=null, generation=0;
     const choice=()=>app.settings.panel_destination;
-    const selector=h('select',{'aria-label':'Panel destination'},h('option',{value:'community'},'Default Community'),h('option',{value:'custom'},'Custom folder')) as HTMLSelectElement;
+    const selector=h('select',{class:'fh-in','aria-label':'Panel destination'},h('option',{value:'community'},'Default Community'),h('option',{value:'custom'},'Custom folder')) as HTMLSelectElement;
     const target=h('input',{type:'text',readonly:true,'aria-label':'Custom package parent',class:'fh-panel-path'}) as HTMLInputElement;
     const browse=h('button',{type:'button',class:'fh-btn'},'Browse') as HTMLButtonElement;
     const custom=h('div',{class:'fh-arow'},target,browse);

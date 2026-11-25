@@ -154,3 +154,6 @@ Enable **Highlight suggested flap** in Settings to highlight the different flap 
 
 ### App-wide display units
 Open **Settings > Display (app-wide preferences)** to choose preferred speed and altitude units. These preferences apply to all gliders, both panels and the profile editor. The Profiles section has no per-glider unit selector; native profile JSON remains in metres per second.
+
+### Desktop control window and Settings
+The main window displays simulator connection, detected aircraft, active profile and source, and whether the external panel is open. **Edit profiles** opens the detailed editor, while **Settings** opens three keyboard-accessible areas: **Display** (global units, display toggles, AGL and appearance), **In-sim Panel** (package and auto-hide), and **Profiles** (glider definitions and local adjustments). Switching between Settings areas does not save or discard profile edits. Panel rendering and data formats are unchanged.
