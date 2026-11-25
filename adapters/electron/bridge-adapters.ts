@@ -100,7 +100,14 @@ export class BridgeHost implements Host {
   setExternalPanel(on: boolean): Promise<boolean> {
     return this.bridge.invoke('host:setExternalPanel', on) as Promise<boolean>;
   }
-  installCockpitPanel(): Promise<string> {
-    return this.bridge.invoke('host:installPanel') as Promise<string>;
+  panelStatus(choice: import('../../core/panel-install').PanelDestination) {
+    return this.bridge.invoke('host:panelStatus', choice) as Promise<import('../../core/panel-install').PanelInstallStatus>;
+  }
+  browsePanelParent() { return this.bridge.invoke('host:panelBrowse') as Promise<string|null>; }
+  setPanelInstalled(choice: import('../../core/panel-install').PanelDestination, enabled: boolean) {
+    return this.bridge.invoke('host:panelSetEnabled', choice, enabled) as Promise<import('../../core/panel-install').PanelInstallResult>;
+  }
+  updatePanel(choice: import('../../core/panel-install').PanelDestination) {
+    return this.bridge.invoke('host:panelUpdate', choice) as Promise<import('../../core/panel-install').PanelInstallResult>;
   }
 }

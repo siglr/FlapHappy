@@ -13,7 +13,8 @@ import { PanelRuntime } from './panel-runtime';
 import { SimulatedSource, type SimControls } from '../adapters/simulated/simulated-source';
 import { startPanelServer } from './panel-server';
 import { loadPublishedWsgCatalog, matchPublishedWsgAircraft } from '../adapters/electron/wsg-catalog-source';
-import { installCockpitPanel } from './panel-install';
+import { installCockpitPanel, removeCockpitPanel, panelInstallStatus } from './panel-install';
+import { normalizePanelDestination } from '../core/panel-install';
 
 function windowIcon(): string | undefined {
   const packed = path.join(process.resourcesPath, 'icon.ico');
@@ -271,7 +272,20 @@ function registerIpc(): void {
   ipcMain.handle('host:setExternalPanel', (event, on: boolean) => event.sender === win?.webContents && typeof on === 'boolean' ? setExternalPanel(on) : false);
   ipcMain.handle('host:openProfilesFolder', () => shell.openPath(store.profilesDir));
   ipcMain.handle('host:quit', () => app.quit());
-  ipcMain.handle('host:installPanel', () => installCockpitPanel(path.join(__dirname, 'panel', 'flaphappy-ingamepanel')));
+  const panelBundle=path.join(__dirname,'panel','flaphappy-ingamepanel');
+  const assertMain=(e: Electron.IpcMainInvokeEvent)=>{if(!win||e.sender!==win.webContents)throw Error('Panel management is available only from the main window');};
+  ipcMain.handle('host:panelStatus',(e,choice:unknown)=>{assertMain(e);return panelInstallStatus(panelBundle,normalizePanelDestination(choice));});
+  ipcMain.handle('host:panelBrowse',async(e)=>{assertMain(e);const result=await dialog.showOpenDialog(win!,{title:'Select add-ons package parent',properties:['openDirectory']});return result.canceled?null:result.filePaths[0]??null;});
+  ipcMain.handle('host:panelSetEnabled',(e,raw:unknown,enabled:unknown)=>{
+    assertMain(e);const choice=normalizePanelDestination(raw),status=panelInstallStatus(panelBundle,choice);
+    if(enabled===false)return removeCockpitPanel(panelBundle,choice);
+    if(enabled===true&&status.action==='Install')return installCockpitPanel(panelBundle,choice);
+    return {ok:false,message:status.message,status};
+  });
+  ipcMain.handle('host:panelUpdate',(e,raw:unknown)=>{
+    assertMain(e);const choice=normalizePanelDestination(raw),status=panelInstallStatus(panelBundle,choice);
+    return status.action==='Update'?installCockpitPanel(panelBundle,choice):{ok:false,message:status.message,status};
+  });
   ipcMain.handle('panel:getState',()=>panelRuntime?.getState()??null);
   ipcMain.handle('panel:setBallast', (_e, profileId: string, f: number) => quitting ? false : panelRuntime?.setBallast(f, profileId));
 

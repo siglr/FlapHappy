@@ -1,5 +1,6 @@
 import type { WsgOverrideMap } from './wsg-overrides';
 
+import type { PanelDestination } from './panel-install';
 export const PROFILE_SCHEMA = 'flaphappy.profile/3';
 export const SETTINGS_SCHEMA = 'flaphappy.settings/1';
 
@@ -133,6 +134,7 @@ export interface Settings {
   wsg_profiles_enabled: boolean;
   wsg_profile_overrides: WsgOverrideMap;
   /** Original ribbon bounds retained for the optional external panel. */
+  panel_destination:PanelDestination;
   window: WindowBounds | null;
   main_window: WindowBounds | null;
 }

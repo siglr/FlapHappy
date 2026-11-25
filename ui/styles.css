@@ -285,3 +285,10 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-external-toggle:disabled { opacity: 0.45; cursor: default; }
 .fh-main-launch { display: flex; align-items: center; margin: 8px 0; }
 .fh-main-display .fh-header { -webkit-app-region: no-drag; }
+
+.fh-panel-install { display:flex; flex-direction:column; border-top:1px solid #7776; margin-top:8px; padding-top:8px; }
+.fh-panel-install > * + * { margin-top:6px; }
+.fh-panel-install [hidden] { display:none !important; }
+.fh-panel-install .fh-panel-path { min-width:0; flex:1; }
+.fh-panel-update { position:relative; }
+.fh-panel-update::after { content:'!'; font:bold 11px sans-serif; color:#171717; background:#ffc557; position:absolute; right:-4px; top:-4px; border-radius:50%; width:15px; height:15px; line-height:15px; text-align:center; }

@@ -42,7 +42,4 @@ export class BrowserHost implements Host {
   setCompact(): void {}
   openProfilesFolder(): void {}
   quit(): void {}
-  installCockpitPanel(): Promise<string> {
-    return Promise.resolve('The cockpit panel installs from the desktop app.');
-  }
 }

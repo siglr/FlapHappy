@@ -1,4 +1,5 @@
 import { normalizeWsgOverrides } from './wsg-overrides';
+import { normalizePanelDestination } from './panel-install';
 import { SETTINGS_SCHEMA, type Settings } from './types';
 import { defaultAglScale, feetToMetres, roundMetres, type SpeedUnit } from './units';
 import { clamp01 } from './profile';
@@ -16,6 +17,7 @@ export function defaultSettings(): Settings {
     ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, external_panel_on_launch: false, show_ballast: true, show_agl: true, auto_hide_external: false, simple_flap: false, show_transitions: false, show_wind: true, bar_shading: true },
     wsg_profiles_enabled: false,
     wsg_profile_overrides: {},
+    panel_destination:normalizePanelDestination(null),
     window: null,
     main_window: null,
   };
@@ -85,5 +87,6 @@ export function normalizeSettings(raw: unknown): Settings {
     wsg_profile_overrides: normalizeWsgOverrides(r.wsg_profile_overrides),
     window: bounds(r.window),
     main_window: bounds(r.main_window),
+    panel_destination:normalizePanelDestination(r.panel_destination),
   };
 }

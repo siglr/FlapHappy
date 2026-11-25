@@ -101,7 +101,10 @@ export interface Host {
   openProfilesFolder(): void;
   quit(): void;
   /** Copy the in-sim toolbar panel into the MSFS Community folder. Returns a status message. */
-  installCockpitPanel(): Promise<string>;
   setExternalPanel?(on: boolean): Promise<boolean>;
   getExternalPanel?(): Promise<boolean>;
+  panelStatus?(choice: import('./panel-install').PanelDestination): Promise<import('./panel-install').PanelInstallStatus>;
+  browsePanelParent?(): Promise<string | null>;
+  setPanelInstalled?(choice: import('./panel-install').PanelDestination, enabled: boolean): Promise<import('./panel-install').PanelInstallResult>;
+  updatePanel?(choice: import('./panel-install').PanelDestination): Promise<import('./panel-install').PanelInstallResult>;
 }
