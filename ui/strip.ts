@@ -160,7 +160,7 @@ export class StripView {
     this.panel.style.width = this.native + 'px';
   }
 
-  render(model: DisplayModel, extra: { profile: Profile | null; zoom?: number; showBallast?: boolean; showAgl?: boolean; simpleFlap?: boolean; showTransitions?: boolean; showWind?: boolean; barShading?: boolean }): void {
+  render(model: DisplayModel, extra: { profile: Profile | null; zoom?: number; showBallast?: boolean; showAgl?: boolean; simpleFlap?: boolean; showTransitions?: boolean; highlightRecommended?:boolean; showWind?: boolean; barShading?: boolean }): void {
     this.ensureStructure(model);
     const n = model.cells.length;
     const simpleMode = extra.simpleFlap === true;
@@ -188,6 +188,7 @@ export class StripView {
     this.cellEls.forEach((c, i) => {
       const cell = model.cells[i];
       toggleClass(c, 'current', cell.state === 'current');
+      toggleClass(c,'recommended',extra.highlightRecommended===true&&model.recommendedRow===i&&cell.state!=='current');
     });
 
     toggleClass(this.panel, 'fh-nobar', !model.barVisible);

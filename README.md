@@ -148,3 +148,6 @@ In Settings, check **Merge adjoining flap bands (exclude divider)** for a transi
 
 ### Responsive speed-trigger labels
 When **Flap transitions** is enabled, the whole-number speed labels occupy a single row where their measured text widths fit. Crowded labels alternate between two rows while remaining aligned with the real dividers. Extremely dense values remain available on the dividers rather than overlapping neighboring text. The IAS calculations and units are unchanged.
+
+### Recommendation highlight
+Enable **Highlight suggested flap** in Settings to highlight the different flap band suggested by the current IAS in the full ribbon (light amber). The actual handle stays blue. It defaults off, and no highlight is shown on the ground, when the live handle/IAS or valid speeds are unavailable, outside the applicable range, or when the suggestion matches the actual band.

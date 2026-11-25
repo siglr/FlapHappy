@@ -94,7 +94,7 @@ function paint(state: CockpitState): void {
     agl: aglFromState(state),
   });
   slider.render(profile, model.weight, { f: typeof f === 'number' && isFinite(f) ? Math.max(0, Math.min(1, f)) : profile.ballast.default_fraction, unconfirmed: false, restored: false });
-  strip.render(model, { profile, zoom: state.zoom, showBallast: state.showBallast !== false, showAgl: state.showAgl !== false, simpleFlap: state.simpleFlap===true, showTransitions: state.showTransitions === true, showWind: state.showWind !== false, barShading: state.barShading !== false });
+  strip.render(model, { profile, zoom: state.zoom, showBallast: state.showBallast !== false, showAgl: state.showAgl !== false, simpleFlap: state.simpleFlap===true, showTransitions: state.showTransitions === true, highlightRecommended:state.highlightRecommended===true, showWind: state.showWind !== false, barShading: state.barShading !== false });
 }
 
 function aglFromState(state: CockpitState): AglScale | undefined {

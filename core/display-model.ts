@@ -49,7 +49,7 @@ export interface DisplayModel {
   aglInBand: boolean;
   /** Tick labels at Low, the middle of that band, and High, in the current height unit. */
   aglMarks: string[];
-  /** Same ticks as fractions of the bar. Null hides a tick that falls outside Bottomâ€“Top. */
+  /** Same ticks as fractions of the bar. Null hides a tick that falls outside BottomÃ¢â‚¬â€œTop. */
   aglMarkPos: Array<number | null>;
   /** Ambient wind speed, shown on the left of the height bar. */
   windText: string;
@@ -61,6 +61,7 @@ export interface DisplayModel {
   currentRow: number | null;
   /** Simple guidance uses the same ordered profile buckets as the IAS marker. */
   simple: { current: string | null; suggestion: { label: string; direction: 'slower' | 'faster' } | null };
+  recommendedRow:number|null;
 }
 
 export interface ModelInput {
@@ -120,6 +121,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     incompleteMessage: null,
     currentRow: null,
     simple: { current: null, suggestion: null },
+    recommendedRow:null,
   };
   if (!profile || !validation) {
     base.incompleteMessage = 'no profile: open settings';
@@ -197,6 +199,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
       if(profile.wsg&&profile.vne===null&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
       const currentGroup=base.currentRow;
       if (currentGroup!==null && row >= 0 && row < base.cells.length && row !== currentGroup) {
+        base.recommendedRow=row;
         base.simple.suggestion = { label: base.cells[row].label, direction: row < currentGroup ? 'slower' : 'faster' };
       }
     }

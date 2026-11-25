@@ -28,6 +28,7 @@ export interface CockpitState {
   /** Optional for older apps; applied by the in-sim toolbar wrapper only. */
   autoHideExternal?:boolean;
   showTransitions: boolean;
+  highlightRecommended?:boolean;
   showWind: boolean;
   /** Cylinder shading on the IAS and AGL fills. Missing means on. */
   barShading: boolean;

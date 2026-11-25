@@ -75,6 +75,7 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-cell { height: 100%; color: #8c99ab; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; background: transparent; -webkit-transition: background-color 0.15s ease, border-color 0.15s ease; transition: background-color 0.15s ease, border-color 0.15s ease; white-space: nowrap; overflow: hidden; }
 .fh-cell.fh-long { font-size: 20px; }
 .fh-cell.current { background: #2f8fd8; color: #ffffff; }
+.fh-cell.recommended:not(.current) { background:#ffda91; color:#1b2b38; }
 .fh-cells.grey { opacity: 0.5; }
 
 /* Simple gear-style guidance. Side cells are equal so the current flap cannot drift. */

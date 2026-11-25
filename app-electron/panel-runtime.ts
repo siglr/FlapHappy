@@ -13,7 +13,7 @@ import { PRESETS } from '../profiles';
 
 /** Main-process session for both panels. It does not depend on a renderer. */
 export class PanelRuntime {
-  private state: CockpitState = { ready: false, profile: null, sample: null, receivedAt: 0, ballast: 0, units: 'kt', height:'ft', agl:defaultSettings().agl, zoom: 1, showBallast:true,showAgl:true,autoHideExternal:false,simpleFlap:false,showTransitions:false,showWind:true,barShading:true };
+  private state: CockpitState = { ready: false, profile: null, sample: null, receivedAt: 0, ballast: 0, units: 'kt', height:'ft', agl:defaultSettings().agl, zoom: 1, showBallast:true,showAgl:true,autoHideExternal:false,simpleFlap:false,showTransitions:false,highlightRecommended:false,showWind:true,barShading:true };
   private title: string | null = null;
   private generation = 0;
   private binding:string|null=null;
@@ -138,7 +138,7 @@ export class PanelRuntime {
     const ballast = profile ? initialBallast(profile, this.ballastByProfile[profile.id]).f : 0;
     const oldLvar = prior?.current_flap.lvar_name;
     const changed = prior?.id !== profile?.id || this.state.ballast !== ballast;
-    this.state = { ...this.state, ready: true, profile,profileSource:profile?source:'none',noProfileMessage:profile?undefined:noProfileMessage,detectedWsgVariant,aircraftTitle:this.title,aircraftBindingKey:this.binding, ballast, units: settings.units, height:settings.height, agl:settings.agl, zoom: settings.ui.zoom,showBallast:settings.ui.show_ballast,showAgl:settings.ui.show_agl,autoHideExternal:settings.ui.auto_hide_external,simpleFlap:settings.ui.simple_flap,showTransitions:settings.ui.show_transitions,showWind:settings.ui.show_wind,barShading:settings.ui.bar_shading };
+    this.state = { ...this.state, ready: true, profile,profileSource:profile?source:'none',noProfileMessage:profile?undefined:noProfileMessage,detectedWsgVariant,aircraftTitle:this.title,aircraftBindingKey:this.binding, ballast, units: settings.units, height:settings.height, agl:settings.agl, zoom: settings.ui.zoom,showBallast:settings.ui.show_ballast,showAgl:settings.ui.show_agl,autoHideExternal:settings.ui.auto_hide_external,simpleFlap:settings.ui.simple_flap,showTransitions:settings.ui.show_transitions,highlightRecommended:settings.ui.highlight_recommended,showWind:settings.ui.show_wind,barShading:settings.ui.bar_shading };
     if (oldLvar !== profile?.current_flap.lvar_name) this.setLvar(profile?.current_flap.lvar_name ?? null);
     if (changed && profile) this.notifyBallast(profile.id, ballast);
     this.notifyActive?.(this.state);
