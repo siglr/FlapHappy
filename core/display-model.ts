@@ -49,7 +49,7 @@ export interface DisplayModel {
   aglInBand: boolean;
   /** Tick labels at Low, the middle of that band, and High, in the current height unit. */
   aglMarks: string[];
-  /** Same ticks as fractions of the bar. Null hides a tick that falls outside BottomÃ¢â‚¬â€œTop. */
+  /** Same ticks as fractions of the bar. Null hides a tick that falls outside Bottom–Top. */
   aglMarkPos: Array<number | null>;
   /** Ambient wind speed, shown on the left of the height bar. */
   windText: string;
