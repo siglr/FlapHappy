@@ -355,7 +355,7 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-profile-value,.fh-override-number { flex:0 1 82px; min-width:0; width:82px; max-width:100%; margin-left:8px; }
 .fh-profile-value .fh-speed { width:100%; min-width:0; }
 .fh-profile-grid > .fh-in:not(.fh-override-number) { min-width:0; max-width:100%; }
-.fh-visibility-cell { flex:0 1 178px; min-width:0; margin-left:8px; }
+.fh-visibility-cell { flex:0 0 178px; min-width:0; margin-left:8px; }
 .fh-visibility-cell > select { width:100%; min-width:0; }
 .fh-visibility-cell > .fh-exclude-transition { margin-left:0; }
 .fh-profile-head .fh-visibility-cell { text-align:center; }
@@ -363,7 +363,7 @@ button, input, select { font-family: inherit; font-size: 14px; }
 @media(max-width:460px){
  .fh-visibility-row .fh-profile-title { flex:1 1 90px; }
  .fh-visibility-row .fh-profile-value,.fh-visibility-row .fh-override-number{flex:0 1 61px;width:61px;margin-left:4px;}
- .fh-visibility-row .fh-visibility-cell{flex:0 1 168px;margin-left:4px;}
+ .fh-visibility-row .fh-visibility-cell{flex:0 0 168px;margin-left:4px;}
  .fh-visibility-row .fh-in{padding-left:4px;padding-right:4px;font-size:12px;}
  .fh-profile-grid .fh-profile-title { overflow-wrap:anywhere; }
 }

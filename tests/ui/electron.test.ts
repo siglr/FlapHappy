@@ -369,5 +369,8 @@ it.skipIf(!canRun)('Demo profile selection aligns routed flap count and weight, 
   await main.evaluate(()=> (window as any).__flapHappy.app.setSimpleFlap(true));await panel.waitForFunction(()=>document.querySelector('.fh-profile-alert')?.textContent?.includes('expected 3, received 2'));expect(await panel.locator('.fh-profile-alert').isVisible()).toBe(true);
   await main.locator('.fh-dev-reset-count').click();await waitUntil(async()=>(await getFeed()).sample?.flapCount===3);await panel.waitForFunction(()=>!document.querySelector('.fh-profile-alert')?.getClientRects().length);
   await select('A-DEMO',8);
+  const editor=await openEditor(app,main);await editor.waitForFunction(()=>document.querySelector('option[value=":wsg:A-DEMO"]')!==null);await editor.selectOption('.fh-profile-select',':wsg:A-DEMO');
+  for(const zoom of [1,1.5]){await app.evaluate(({BrowserWindow},z)=>BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('Settings'))!.webContents.setZoomFactor(z),zoom);await editor.waitForTimeout(150);const measured=await editor.locator('[aria-label="Transition 0 visibility"]').evaluate(el=>{const sel=el as HTMLSelectElement,style=getComputedStyle(sel),ctx=document.createElement('canvas').getContext('2d')!;ctx.font=style.font;return {available:sel.clientWidth,needed:ctx.measureText(sel.selectedOptions[0].textContent??'').width+parseFloat(style.paddingLeft)+parseFloat(style.paddingRight)+24};});expect(measured.available).toBeGreaterThanOrEqual(measured.needed);}
+  await editor.locator('.fh-back').click();
  }finally{await app.close();}
 });
