@@ -119,5 +119,7 @@ export interface Settings {
     /** Cylinder shading on the IAS and AGL fills, including the white end line. */
     bar_shading: boolean;
   };
+  /** Optional anonymous WSG profile browsing; off by default. */
+  wsg_profiles_enabled: boolean;
   window: WindowBounds | null;
 }

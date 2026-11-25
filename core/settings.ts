@@ -12,6 +12,7 @@ export function defaultSettings(): Settings {
     height: 'ft',
     agl: defaultAglScale(),
     ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, show_ballast: true, show_agl: true, show_transitions: false, show_wind: true, bar_shading: true },
+    wsg_profiles_enabled: false,
     window: null,
   };
 }
@@ -71,6 +72,7 @@ export function normalizeSettings(raw: unknown): Settings {
       show_wind: ui.show_wind !== false,
       bar_shading: ui.bar_shading !== false,
     },
+    wsg_profiles_enabled: r.wsg_profiles_enabled === true,
     window: win,
   };
 }

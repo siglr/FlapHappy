@@ -28,6 +28,8 @@ Your data lives in `%APPDATA%\FlapHappy\`:
 - `profiles\<name>.json`: one file per profile (readable, shareable; drag a `.json` onto the window to import).
 - `settings.json`: window position, zoom, selected profile, etc. Manual ballast preferences are retained per profile and used only when either weight anchor is absent.
 
+The optional **Browse WSG.org published profiles** setting fetches the public, anonymous catalog when the editor is opened (no login, token or API key). It defaults off; local profiles remain available offline. Published variants are listed by their exact keys and previewed without changing the current local profile or its title selection. Flight activation is deliberately not enabled in this preview: the catalog does not supply an IAS upper bound, stall IAS may be absent, and published exclusions need matching flight-display semantics. TAS VNE is not used as an IAS substitute.
+
 Saving writes a `.bak` next to the file first; deleted profiles are kept as `.deleted.bak`.
 
 ## Developer setup

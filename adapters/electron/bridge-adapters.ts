@@ -67,6 +67,9 @@ export class BridgeHost implements Host {
   info(): Promise<HostInfo> {
     return this.bridge.invoke('host:info') as Promise<HostInfo>;
   }
+  getPublishedWsgCatalog(): Promise<import('../../core/wsg-catalog').WsgCatalog> {
+    return this.bridge.invoke('host:wsgCatalog') as Promise<import('../../core/wsg-catalog').WsgCatalog>;
+  }
   openJson(): Promise<string | null> {
     return this.bridge.invoke('host:openJson') as Promise<string | null>;
   }

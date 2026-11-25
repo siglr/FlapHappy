@@ -84,6 +84,7 @@ export interface Host {
   capabilities: HostCapabilities;
   info(): Promise<HostInfo>;
   openJson(): Promise<string | null>;
+  getPublishedWsgCatalog?(): Promise<import('./wsg-catalog').WsgCatalog>;
   saveJson(name: string, text: string): Promise<boolean>;
   setAlwaysOnTop(on: boolean): void;
   setOpacity(opacity: number): void;

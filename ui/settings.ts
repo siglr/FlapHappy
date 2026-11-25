@@ -12,6 +12,7 @@ import {
 } from '../core/profile';
 import { formatSpeedField, heightToMetres, heightUnitLabel, metresToHeight, unitLabel, unitToKnots, type SpeedUnit } from '../core/units';
 import { validateProfile } from '../core/validate';
+import type { WsgCatalog, WsgPublishedProfile } from '../core/wsg-catalog';
 import { canSaveWeightMode, profileForWeightMode, weightModeForProfile, type WeightMode } from '../core/weight';
 import { clear, fmtNum, h, numberOrNull, setText, toggleClass } from './dom';
 import type { App } from './app';
@@ -37,6 +38,10 @@ export class SettingsView {
   private profileBusy = false;
   private mappingOpen = false;
   private displayOptionsOpen = false;
+  private wsgCatalog: WsgCatalog | null = null;
+  private wsgPreview: WsgPublishedProfile | null = null;
+  private wsgStatus = '';
+  private wsgGeneration = 0;
   private validation: ValidationResult | null = null;
   private prefilled: number[] = [];
   private undo: { profile: Profile; what: string } | null = null;
@@ -108,9 +113,11 @@ export class SettingsView {
     this.paintSaveState();
     this.app.onModel = () => this.updateLive();
     this.updateLive();
+    if (this.app.settings.wsg_profiles_enabled && this.app.host.getPublishedWsgCatalog) void this.loadWsgCatalog();
   }
 
   dispose(): void {
+    this.wsgGeneration++;
     this.endDrag();
     if (this.dirty && this.draft) this.app.setUnsaved(this.draft, this.weightMode);
   }
@@ -141,7 +148,7 @@ export class SettingsView {
 
   async saveNow(): Promise<void> {
     const draft = this.draft;
-    if (!draft || !canSaveWeightMode(draft, this.weightMode)) return;
+    if (this.wsgPreview || !draft || !canSaveWeightMode(draft, this.weightMode)) return;
     const d = profileForWeightMode(draft, this.weightMode);
     this.draft = d;
     const applied = !!(this.validation && this.validation.ok);
@@ -155,7 +162,7 @@ export class SettingsView {
   }
 
   private paintSaveState(): void {
-    const canSave = canSaveWeightMode(this.draft, this.weightMode);
+    const canSave = !this.wsgPreview && canSaveWeightMode(this.draft, this.weightMode);
     this.saveBtn.disabled = !this.dirty || !canSave;
     if (this.saveAsBtn) this.saveAsBtn.disabled = !canSave;
     if (this.profilePicker) this.profilePicker.disabled = this.dirty || this.profileBusy;
@@ -165,6 +172,7 @@ export class SettingsView {
   }
 
   private setDraft(p: Profile | null): void {
+    this.wsgPreview = null;
     this.draft = p;
     this.weightMode = weightModeForProfile(p);
     this.previousWeights = null;
@@ -238,7 +246,7 @@ export class SettingsView {
       h('label', { class: 'fh-slide' + (enabled ? '' : ' off') }, h('input', { type: 'checkbox', class: cls, 'aria-label': label, checked: on, disabled: !enabled, onchange: (e: Event) => set((e.target as HTMLInputElement).checked) }), h('span', { class: 'fh-slidetrack' }, h('span', { class: 'fh-slideknob' })));
     const row = (label: string, control: HTMLElement) => h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, label), control);
     const toggles = h('div', { class: 'fh-toggles' }, h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Speed'), h('span', { class: 'fh-units' }, unitBtn('kt', 'kt'), unitBtn('kmh', 'km/h'))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Altitude'), h('span', { class: 'fh-units fh-height' }, heightBtn('ft', 'ft'), heightBtn('m', 'm'))), row('Flap transitions', sw('fh-show-transitions', u.show_transitions, 'Flap transitions', (v) => app.setShowTransitions(v))), row('Weight / ballast bar', sw('fh-show-ballast', u.show_ballast, 'Weight / ballast bar', (v) => app.setShowBallast(v))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'AGL bar'), sw('fh-show-agl', u.show_agl, 'AGL bar', (v) => { app.setShowAgl(v); this.renderProfileBar(); }), h('span', { class: 'fh-unitlab fh-beside' + (u.show_agl ? '' : ' off') }, 'Wind speed'), sw('fh-show-wind', u.show_wind, 'Wind speed', (v) => app.setShowWind(v), u.show_agl)));
-    this.saveAsBtn = files ? h('button', { class: 'fh-btn fh-saveas', type: 'button', disabled: !canSaveWeightMode(this.draft, this.weightMode), onclick: () => void this.saveAs() }, 'Save As...') as HTMLButtonElement : null;
+    this.saveAsBtn = files ? h('button', { class: 'fh-btn fh-saveas', type: 'button', disabled: !!this.wsgPreview || !canSaveWeightMode(this.draft, this.weightMode), onclick: () => void this.saveAs() }, 'Save As...') as HTMLButtonElement : null;
     const ids = app.metas.map(m => m.id);
     if (this.draft && ids.indexOf(this.draft.id) < 0) ids.push(this.draft.id);
     ids.sort((a, b) => a.localeCompare(b));
@@ -255,12 +263,15 @@ export class SettingsView {
       onchange: (e: Event) => {
         const id = (e.target as HTMLSelectElement).value;
         if (id === ':custom') {
-          (e.target as HTMLSelectElement).value = this.draft?.id ?? '';
+          (e.target as HTMLSelectElement).value = this.selectedProfileValue();
           if (files) void this.openFile(); else customFile.click();
-        } else void this.selectProfile(id);
-      } }, h('option', { value: '', disabled: true }, 'Select a profile'), ...ids.map(id => h('option', { value: id }, profileLabel(id))),
-      h('option', { value: ':custom' }, 'Custom profile…')) as HTMLSelectElement;
-    this.profilePicker.value = this.draft?.id ?? '';
+        } else if (id.indexOf(':wsg:') === 0) this.previewWsg(id.slice(5));
+        else void this.selectProfile(id);
+      } }, h('option', { value: '', disabled: true }, 'Select a profile'),
+      h('optgroup', { label: 'Local profiles' }, ...ids.map(id => h('option', { value: id }, profileLabel(id)))),
+      h('option', { value: ':custom' }, 'Custom profile...'),
+      this.wsgCatalog ? h('optgroup', { label: 'WSG.org published profiles (preview)' }, ...this.wsgCatalog.profiles.map(p => h('option', { value: ':wsg:' + p.variantKey }, p.variantKey))) : null) as HTMLSelectElement;
+    this.profilePicker.value = this.selectedProfileValue();
     const input = h('input', { class: 'fh-in fh-new-name', type: 'text', maxlength: '64', placeholder: 'Profile name', 'aria-label': 'New profile name' }) as HTMLInputElement;
     const message = h('span', { class: 'fh-hint', role: 'status' });
     const newForm = h('form', { class: 'fh-new-form', onsubmit: (e: Event) => {
@@ -282,12 +293,61 @@ export class SettingsView {
     this.discardBtn.style.display = this.dirty ? '' : 'none';
     const profile = h('div', { class: 'fh-profile-top' },
       h('div', { class: 'fh-subtitle' }, 'Glider profile'),
+      app.host.getPublishedWsgCatalog ? h('div', { class: 'fh-wsg-source' },
+        h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: 'fh-wsg-enabled', checked: app.settings.wsg_profiles_enabled, onchange: (e: Event) => this.setWsgEnabled((e.target as HTMLInputElement).checked) }), ' Browse WSG.org published profiles (optional)'),
+        app.settings.wsg_profiles_enabled ? h('div', { class: 'fh-hint fh-wsg-status', role: 'status' }, this.wsgStatus || 'Loading published profiles...') : null) : null,
       h('div', { class: 'fh-prow' }, this.profilePicker, this.newProfileBtn, this.discardBtn,
         customFile, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null),
       newForm);
     this.profileBar.appendChild(profile);
     this.profileBar.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, 'Display preferences'), toggles));
     if (!this.draft) this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Create a local profile or open a JSON file to start.'));
+  }
+
+  private selectedProfileValue(): string {
+    return this.wsgPreview ? ':wsg:' + this.wsgPreview.variantKey : this.draft?.id ?? '';
+  }
+
+  private setWsgEnabled(on: boolean): void {
+    this.app.settings.wsg_profiles_enabled = on;
+    this.app.persistSoon();
+    if (!on) {
+      this.wsgGeneration++;
+      this.wsgCatalog = null;
+      this.wsgPreview = null;
+      this.wsgStatus = '';
+      this.renderAll();
+      this.paintSaveState();
+    } else void this.loadWsgCatalog();
+  }
+
+  private async loadWsgCatalog(): Promise<void> {
+    const host = this.app.host;
+    if (!this.app.settings.wsg_profiles_enabled || !host.getPublishedWsgCatalog) return;
+    const generation = ++this.wsgGeneration;
+    this.wsgStatus = 'Loading published profiles...';
+    this.renderProfileBar();
+    try {
+      const catalog = await host.getPublishedWsgCatalog();
+      if (generation !== this.wsgGeneration || !this.app.settings.wsg_profiles_enabled) return;
+      this.wsgCatalog = catalog;
+      this.wsgStatus = catalog.profiles.length + ' published profiles (revision ' + catalog.revision + ')';
+    } catch {
+      if (generation !== this.wsgGeneration) return;
+      this.wsgCatalog = null;
+      this.wsgStatus = 'WSG.org profiles unavailable; local profiles still work offline.';
+    }
+    this.renderProfileBar();
+    this.paintSaveState();
+  }
+
+  private previewWsg(key: string): void {
+    if (this.dirty || !this.wsgCatalog) return;
+    const p = this.wsgCatalog.profiles.find(x => x.variantKey === key);
+    if (!p) return;
+    this.wsgPreview = p;
+    this.renderAll();
+    this.paintSaveState();
   }
 
   private async selectProfile(id: string): Promise<void> {
@@ -335,6 +395,7 @@ export class SettingsView {
     this.fields = {};
     this.transNames = [];
     this.rowEls = [];
+    if (this.wsgPreview) { this.renderWsgPreview(this.wsgPreview); return; }
     const d = this.draft;
     if (!d) return;
     const n = d.flaps.length;
@@ -399,6 +460,27 @@ export class SettingsView {
     });
     mapping.appendChild(this.tools);
     this.table.appendChild(mapping);
+  }
+
+  /** Do not activate a published table until standalone bound and exclusion semantics are supported. */
+  private renderWsgPreview(p: WsgPublishedProfile): void {
+    const unit = this.app.settings.units === 'kmh' ? 'kmh' : 'kt';
+    const speed = (kt: number | null) => kt === null ? 'Not published' : formatSpeedField(kt, unit);
+    const cell = (v: string) => h('div', { class: 'fh-profile-value' }, v);
+    const row = (name: string, l: string, r: string) => h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, name), cell(l), cell(r));
+    this.table.appendChild(h('div', { class: 'fh-profile-card fh-wsg-preview' },
+      h('div', { class: 'fh-subtitle' }, p.variantKey + ' — published WSG.org profile'),
+      h('div', { class: 'fh-hint' }, 'Read-only preview. Your local flight profile is unchanged. WSG profiles always use live weight.'),
+      row('', 'Light', 'Heavy'), row('Flying weight (kg)', String(p.lightWeightKg), String(p.heavyWeightKg)),
+      row('Stall IAS (' + unitLabel(unit) + ')', speed(p.lightStallIasKph === null ? null : p.lightStallIasKph / 1.852), speed(p.heavyStallIasKph === null ? null : p.heavyStallIasKph / 1.852)),
+      h('div', { class: 'fh-hint' }, 'IAS upper bound is not published in this catalog. TAS VNE is not substituted.')));
+    const transitions = h('div', { class: 'fh-profile-card fh-wsg-transitions' }, h('div', { class: 'fh-subtitle' }, 'Published transition IAS (' + unitLabel(unit) + ')'), row('From → To', 'Light', 'Heavy'));
+    for (let i = 1; i < p.bands.length; i++) {
+      const b = p.bands[i], from = p.bands[i - 1];
+      transitions.appendChild(row(from.label + ' → ' + b.label + (b.excludeFromDisplay ? ' (Hide)' : ' (Show)'), speed(b.lightStartKt), speed(b.heavyStartKt)));
+    }
+    transitions.appendChild(h('div', { class: 'fh-hint' }, 'Flight activation is pending standalone support for the published exclusion rules and complete IAS bounds. No local profiles are overwritten.'));
+    this.table.appendChild(transitions);
   }
 
   private transitionLabel(p: Profile, i: number): string {
@@ -494,6 +576,7 @@ export class SettingsView {
 
   private renderTools(): void {
     clear(this.tools);
+    if (this.wsgPreview) return;
     const d = this.draft;
     if (!d) return;
     const btn = (text: string, cls: string, fn: () => void) => h('button', { class: 'fh-btn ' + cls, type: 'button', onclick: fn }, text);
@@ -513,6 +596,7 @@ export class SettingsView {
   private renderValidation(): void {
     clear(this.validBox);
     this.renderTools();
+    if (this.wsgPreview) return;
     const v = this.validation;
     if (!v || !this.draft) return;
     const head = v.errors.length
@@ -542,6 +626,7 @@ export class SettingsView {
   /** Cheap per-sample update: the live line. */
   updateLive(): void {
     const app = this.app;
+    if (this.wsgPreview) { setText(this.liveLine, 'Published preview only. Local profile remains active.'); return; }
     const d = this.draft;
     const s = app.lastSample;
     let live = 'Live: no sim data';
@@ -559,6 +644,7 @@ export class SettingsView {
 
   private renderAdvanced(): void {
     clear(this.advanced);
+    if (this.wsgPreview) return;
     const d = this.draft;
     if (!d) return;
     const num = (label: string, get: () => number | null, set: (v: number | null) => void, step = '1', ph = '') =>
@@ -621,7 +707,7 @@ export class SettingsView {
   }
 
   private async saveAs(): Promise<void> {
-    if (!this.draft || !canSaveWeightMode(this.draft, this.weightMode)) return;
+    if (this.wsgPreview || !this.draft || !canSaveWeightMode(this.draft, this.weightMode)) return;
     const p = profileForWeightMode(this.draft, this.weightMode);
     const ok = await this.app.host.saveJson(p.id + '.flaphappy.json', exportProfileJson(p));
     setText(this.saveState, ok ? 'Exported' : 'Export cancelled');
