@@ -327,3 +327,12 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
     }
   });
 });
+
+it.skipIf(!canRun)('desktop status and display labels fit the available window width',async()=>{
+ const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-layout-'));const {app,page}=await launch(ud);
+ try{
+  for(const width of [480,760,1200]){await app.evaluate(({BrowserWindow},w)=>BrowserWindow.getAllWindows()[0].setSize(w,560),width);await page.waitForTimeout(120);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(await page.evaluate(()=>document.querySelector('.fh-main-controls')!.getBoundingClientRect().width>=document.documentElement.clientWidth-25)).toBe(true);}
+  const created=app.waitForEvent('window');await page.click('.fh-main-settings');const editor=await created;await editor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');
+  for(const [width,zoom] of [[760,1],[1200,1],[480,1],[760,1.5]]){await app.evaluate(({BrowserWindow},d)=>{const w=BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('Settings'))!;w.setSize(d.width,760);w.webContents.setZoomFactor(d.zoom);},{width,zoom});await editor.waitForTimeout(120);expect(await editor.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect((await editor.locator('.fh-optrow .fh-unitlab').filter({hasText:'Highlight suggested flap'}).boundingBox())!.height).toBeLessThan(25);}
+ }finally{await app.close();}
+});
