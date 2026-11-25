@@ -80,7 +80,7 @@ export class SettingsView {
     this.advanced = h('div', { class: 'fh-advanced' });
     this.appBox = h('div', { class: 'fh-appbox' });
 
-    const back = h('button', { class: 'fh-btn fh-back', type: 'button', onclick: () => this.close() }, '\u2190 Back to display');
+    const back = h('button', { class: 'fh-btn fh-back', type: 'button', onclick: () => this.close() }, app.info.mainWindow ? 'Close settings' : '\u2190 Back to display');
     this.el = h(
       'div',
       { class: 'fh-settings' },
@@ -506,7 +506,10 @@ export class SettingsView {
     const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph);
     const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid'},h('div',{class:'fh-profile-title'},name),...controls);
     box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS (km/h)',ls,rs));
-    box.appendChild(h('div',{class:'fh-hint'},'Stall IAS refers to the detent before the first shown transition and the exact Light/Heavy weights. Changing either requires both personal stall IAS values to enable the warning.')); 
+    box.appendChild(h('div',{class:'fh-hint'},'Stall IAS refers to the detent before the first shown transition and the exact Light/Heavy weights. Changing either requires both personal stall IAS values to enable the warning.'));
+    let stallTouched=false;ls.addEventListener('input',()=>{stallTouched=true;});rs.addEventListener('input',()=>{stallTouched=true;});
+    const confirmStall=h('input',{type:'checkbox',class:'fh-confirm-stall-context'}) as HTMLInputElement;
+    box.appendChild(h('label',{class:'fh-check'},confirmStall,' Confirm saved stall IAS pair for the current weights and first visible flap transition'));
     const upper=number('upperIasKph',null,prior?.upperIasKph);box.appendChild(row('Personal upper IAS limit (km/h)',upper));
     box.appendChild(h('div',{class:'fh-hint'},'Speed overrides below are IAS in km/h; published reference weights are retained even in Manual ballast mode.'));
     const rows=p.bands.slice(1).map((b,i)=>{
@@ -527,13 +530,15 @@ export class SettingsView {
         for(const x of rows){const a=read(x.light),b=read(x.heavy);const t:{lightStartKt?:number;heavyStartKt?:number;excludeFromDisplay?:boolean}={};if(a!==undefined)t.lightStartKt=a/1.852;if(b!==undefined)t.heavyStartKt=b/1.852;if(x.visibility.value!=='inherit')t.excludeFromDisplay=x.visibility.value==='hide';if(Object.keys(t).length)o.transitions![x.id]=t;}
         const context=wsgStallContext(p,o);
         if(o.lightStallIasKph!==undefined||o.heavyStallIasKph!==undefined){
-          if(!context)throw Error('A stall pair needs a first visible transition.');
-          if(context!==wsgStallContext(p)&&(o.lightStallIasKph===undefined||o.heavyStallIasKph===undefined))throw Error('Changed stall context: supply both IAS values or leave both empty.');
-          o.stallContext=context;
+          if(stallTouched||confirmStall.checked){
+            if(!context)throw Error('A stall pair needs a first visible transition.');
+            if(context!==wsgStallContext(p)&&(o.lightStallIasKph===undefined||o.heavyStallIasKph===undefined))throw Error('Changed stall context: supply both IAS values or leave both empty.');
+            o.stallContext=context;
+          }else if(prior?.stallContext)o.stallContext=prior.stallContext;
         }
         const candidate={...app.settings.wsg_profile_overrides,[p.variantKey]:o};
         if(resolveWsgOverrides(p,candidate).state!=='ok')throw Error('Invalid curve: check ordered IAS, reference weights and both stall values. Changed weights require a complete personal curve.');
-        app.settings.wsg_profile_overrides=candidate;await app.persistNow();app.refreshWsgAdjustments(p.variantKey);setText(status,'Personal adjustments saved locally.');
+        app.settings.wsg_profile_overrides=candidate;await app.persistNow();app.refreshWsgAdjustments(p.variantKey);this.renderAll();const message=this.table.querySelector<HTMLElement>('.fh-wsg-adjustment-status');if(message)setText(message,'Personal adjustments saved locally.');
       }catch(e){setText(status,e instanceof Error?e.message:'Could not save adjustments.');}
     }},'Save personal adjustments');
     const reset=h('button',{type:'button',class:'fh-btn fh-wsg-reset-adjustments',onclick:async()=>{app.settings.wsg_profile_overrides=resetWsgOverrides(app.settings.wsg_profile_overrides,p.variantKey);await app.persistNow();app.refreshWsgAdjustments(p.variantKey);this.renderAll();}},'Reset to WSG defaults');
@@ -750,12 +755,12 @@ export class SettingsView {
     const caps = app.host.capabilities;
     const u = app.settings.ui;
     const rows: HTMLElement[] = [];
-    if (caps.alwaysOnTop) rows.push(h('div', { class: 'fh-arow' }, h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: 'fh-aot', checked: u.always_on_top, onchange: (e: Event) => app.setAlwaysOnTop((e.target as HTMLInputElement).checked) }), ' Keep this window on top of the sim')));
-    if (caps.opacity) rows.push(h('div', { class: 'fh-arow' }, h('label', null, 'Opacity'), h('input', { type: 'range', min: '0.3', max: '1', step: '0.05', value: String(u.opacity), oninput: (e: Event) => app.setOpacity(Number((e.target as HTMLInputElement).value)) })));
+    if (caps.alwaysOnTop) rows.push(h('div', { class: 'fh-arow' }, h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: 'fh-aot', checked: u.always_on_top, onchange: (e: Event) => app.setAlwaysOnTop((e.target as HTMLInputElement).checked) }), ' Keep the external panel on top of the sim')));
+    if (caps.opacity) rows.push(h('div', { class: 'fh-arow' }, h('label', null, 'External panel opacity'), h('input', { type: 'range', min: '0.3', max: '1', step: '0.05', value: String(u.opacity), oninput: (e: Event) => app.setOpacity(Number((e.target as HTMLInputElement).value)) })));
     rows.push(h('div', { class: 'fh-arow' }, h('label', null, 'Zoom'), h('input', { type: 'range', min: '0.5', max: '2', step: '0.1', value: String(u.zoom), oninput: (e: Event) => app.setZoom(Number((e.target as HTMLInputElement).value)) })));
     rows.push(h('div', { class: 'fh-arow' }, h('label', { class: 'fh-check' }, h('input', { type: 'checkbox', class: 'fh-demo', checked: u.demo_mode, onchange: (e: Event) => app.setDemoMode((e.target as HTMLInputElement).checked) }), ' Demo mode: use simulated data instead of the sim')));
     if (caps.files) {
-      const panelNote = h('div', { class: 'fh-hint' }, 'In VR, press Tab and open Flap Happy. The desktop app has to be running.');
+      const panelNote = h('div', { class: 'fh-hint' }, 'In VR, press Tab and open Flap Happy. The main application must be running; the external panel is optional.');
       rows.push(h('div', { class: 'fh-arow' }, h('button', { class: 'fh-btn', type: 'button', onclick: () => void app.host.installCockpitPanel().then((msg) => setText(panelNote, msg)) }, 'Install cockpit panel'), panelNote));
     }
     rows.push(h('div', { class: 'fh-hint' }, 'Version ' + app.info.version + ' | data source: ' + (app.usingSim ? 'simulated' : app.info.source)));

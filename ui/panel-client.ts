@@ -30,9 +30,14 @@ function xhr(method: string, path: string, body: string | null, done: (status: n
   const req = new XMLHttpRequest();
   req.open(method, path, true);
   req.timeout = 1500;
-  req.onreadystatechange = () => {
-    if (req.readyState === 4) done(req.status, req.responseText || '');
+  let completed = false;
+  const finish = () => {
+    if (completed) return;
+    completed = true;
+    done(req.status, req.responseText || '');
   };
+  req.onreadystatechange = () => { if (req.readyState === 4) finish(); };
+  req.onerror = req.ontimeout = finish;
   if (body !== null) req.setRequestHeader('Content-Type', 'application/json');
   req.send(body);
 }
@@ -60,6 +65,8 @@ function paint(state: CockpitState): void {
   const changedProfile = profile.id !== profileId;
   if (changedProfile) {
     profileId = profile.id;
+    shownBallast = -1;
+    holdUntil = 0;
     resolver.reset();
   }
   const now = Date.now();

@@ -87,6 +87,8 @@ describe('display layout: bar, ticks and flap cells share N columns', () => {
   it('weight re-aligns the ticks (labels follow actual weight) and they stay aligned with the cells', async () => {
     const page = await env.newPage('?seed=demo');
     await load(page, makeProfile(6));
+    await clickBallast(page, 0);
+    await settle(page);
     const labels = () => page.$$eval('.fh-display .fh-ticktext', (els) => els.map((e) => e.textContent));
     expect(await labels()).toEqual(['40', '52', '64', '76', '88', '100', '146']);
     await clickBallast(page, 1);
@@ -103,6 +105,8 @@ describe('display layout: bar, ticks and flap cells share N columns', () => {
     p.transitions[0].no_ballast_kt = 44;
     p.transitions[0].max_ballast_kt = 56;
     await load(page, p);
+    await clickBallast(page, 0);
+    await settle(page);
     const g = await geometry(page);
     for (let i = 0; i < 4; i++) expect(Math.abs(g.ticks[i] - g.wraps[i].l)).toBeLessThan(1.5);
     // Buckets 40-44-64-76-114 kt: widths are 4/74, 20/74, 12/74, 38/74 of the bar.
@@ -132,6 +136,8 @@ describe('current-flap highlight and IAS marker', () => {
     for (const n of [2, 6]) {
       const page = await env.newPage('?seed=demo');
       await load(page, makeProfile(n));
+      await clickBallast(page, 0);
+      await settle(page);
       await page.evaluate(() => { (window as any).__flapHappy.app.profile.marker_smoothing_ms = 0; });
       for (let k = 1; k < n; k++) {
         await sim(page, { iasKt: 40 + 12 * k });
@@ -146,6 +152,8 @@ describe('current-flap highlight and IAS marker', () => {
   it('marker is not tied to the highlight: lever on flap 2 while IAS sits in column 5', async () => {
     const page = await env.newPage('?seed=demo');
     await load(page, makeProfile(6));
+    await clickBallast(page, 0);
+    await settle(page);
     await page.evaluate(() => { (window as any).__flapHappy.app.profile.marker_smoothing_ms = 0; });
     await sim(page, { flapIndex: 1, iasKt: 94 });
     await settle(page);

@@ -6,8 +6,11 @@ import { FileProfileStore } from '../adapters/electron/file-store';
 import { SimConnectSource } from '../adapters/electron/simconnect-source';
 import { ReplaySource, parseTraceJsonl } from '../adapters/simulated/replay-source';
 import type { DataSource, HostInfo, SimSample } from '../core/sim';
-import type { CockpitState } from '../core/cockpit';
-import type { Profile, Settings } from '../core/types';
+import { emptySample } from '../core/sim';
+import { COCKPIT_PORT } from '../core/cockpit';
+import type { Profile, Settings, WindowBounds } from '../core/types';
+import { PanelRuntime } from './panel-runtime';
+import { SimulatedSource, type SimControls } from '../adapters/simulated/simulated-source';
 import { startPanelServer } from './panel-server';
 import { loadPublishedWsgCatalog, matchPublishedWsgAircraft } from '../adapters/electron/wsg-catalog-source';
 import { installCockpitPanel } from './panel-install';
@@ -29,24 +32,38 @@ app.setPath('userData', cli.userData ?? path.join(app.getPath('appData'), 'FlapH
 
 let store: FileProfileStore;
 let win: BrowserWindow | null = null;
+let external: BrowserWindow | null = null;
+let panelAvailable = false;
 let source: DataSource | null = null;
 let recorder: fs.WriteStream | null = null;
 let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+let externalBoundsTimer: ReturnType<typeof setTimeout> | null = null;
 let quitting = false;
-let cockpitState: CockpitState | null = null;
+let panelRuntime: PanelRuntime | null = null;
+let initialized = false;
+let openingWindow: Promise<void> | null = null;
+let externalRequest: Promise<boolean> = Promise.resolve(false);
 
 function info(): HostInfo {
-  return { source: cli.source, dev: cli.dev, version: app.getVersion(), platform: process.platform };
+  return { source: cli.source, dev: cli.dev, mainWindow: true, panelAvailable, version: app.getVersion(), platform: process.platform };
 }
 
 function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-function startSource(): void {
+function desiredSource(settings: Settings): HostInfo['source'] {
+  return cli.source === 'simulated' || settings.ui.demo_mode ? 'simulated' : cli.source;
+}
+
+function startSource(kind: HostInfo['source']): void {
+  if (source?.kind === kind) return;
   stopSource();
-  if (cli.source === 'simulated') return;
-  if (cli.source === 'replay') {
+  panelRuntime?.setSourceKind(kind);
+  send('sample', emptySample(Date.now()));
+  if (kind === 'simulated') {
+    source = new SimulatedSource();
+  } else if (kind === 'replay') {
     if (!cli.trace) {
       send('source:log', 'Replay needs --trace=<file.jsonl>');
       return;
@@ -57,10 +74,14 @@ function startSource(): void {
     source = new SimConnectSource({ protocol: cli.protocol, log: (m) => send('source:log', m) });
   }
   if (cli.record && !recorder) recorder = fs.createWriteStream(cli.record, { flags: 'a' });
-  source.start((s: SimSample) => {
+  const active = source;
+  active.start((s: SimSample) => {
+    if (source !== active) return;
     if (recorder && s.connected) recorder.write(JSON.stringify(s) + '\n');
+    if (panelRuntime) panelRuntime.sample(s, kind === 'replay' ? Date.now() : s.t);
     send('sample', s);
   });
+  if (panelRuntime) source.setLvarName?.(panelRuntime.getState().profile?.current_flap.lvar_name ?? null);
 }
 
 function stopSource(): void {
@@ -68,66 +89,152 @@ function stopSource(): void {
   source = null;
 }
 
-function saveBoundsSoon(): void {
-  if (boundsTimer) clearTimeout(boundsTimer);
-  boundsTimer = setTimeout(() => {
-    if (win && !win.isDestroyed() && !win.isMinimized()) store.setWindowBounds(win.getBounds());
-  }, 400);
+function windowBounds(saved: WindowBounds | null, width: number, height: number, minWidth: number, minHeight: number): Electron.Rectangle {
+  const area = saved ? screen.getDisplayMatching(saved).workArea : screen.getPrimaryDisplay().workArea;
+  const w = Math.min(area.width, Math.max(minWidth, saved?.width ?? width));
+  const h = Math.min(area.height, Math.max(minHeight, saved?.height ?? height));
+  return {
+    width: w, height: h,
+    x: Math.max(area.x, Math.min(area.x + area.width - w, saved?.x ?? Math.round(area.x + (area.width - w) / 2))),
+    y: Math.max(area.y, Math.min(area.y + area.height - h, saved?.y ?? Math.round(area.y + (area.height - h) / 2))),
+  };
 }
 
-async function createWindow(compact: boolean): Promise<void> {
+function saveBoundsSoon(isExternal = false): void {
+  const current = isExternal ? external : win;
+  if (!current || current.isDestroyed() || current.isMinimized() || current.isMaximized()) return;
+  const bounds = current.getBounds();
+  const save = () => isExternal ? store.setWindowBounds(bounds) : store.setMainWindowBounds(bounds);
+  if (isExternal) {
+    if (externalBoundsTimer) clearTimeout(externalBoundsTimer);
+    externalBoundsTimer = setTimeout(save, 400);
+  } else {
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(save, 400);
+  }
+}
+
+async function createWindow(): Promise<void> {
   const settings = await store.getSettings();
-  const saved = settings.window;
-  const display = screen.getPrimaryDisplay().workArea;
-  const fits =
-    saved && saved.x < display.x + display.width - 50 && saved.y < display.y + display.height - 50 && saved.x + saved.width > display.x + 50 && saved.y + saved.height > display.y;
   const w = new BrowserWindow({
     title: APP_NAME,
-    width: saved ? saved.width : compact ? 640 : 720,
-    height: saved ? saved.height : compact ? 248 : cli.dev ? 760 : 460,
-    x: fits && saved ? saved.x : undefined,
-    y: fits && saved ? saved.y : undefined,
-    minWidth: 320,
-    minHeight: 120,
-    frame: !compact,
-    backgroundColor: '#0b0e13',
-    icon: windowIcon(),
-    autoHideMenuBar: true,
-    show: false,
+    ...windowBounds(settings.main_window, 760, cli.dev ? 760 : 560, 480, 360),
+    minWidth: 480, minHeight: 360, frame: true,
+    backgroundColor: '#0b0e13', icon: windowIcon(), autoHideMenuBar: true, show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
     },
   });
   w.webContents.setWindowOpenHandler(({url,frameName}) => url==='about:blank'&&frameName==='flaphappy-profiles'
     ? {action:'allow',overrideBrowserWindowOptions:{title:APP_NAME+' - Profiles',parent:w,width:Math.min(760,screen.getDisplayMatching(w.getBounds()).workArea.width-20),height:Math.min(760,screen.getDisplayMatching(w.getBounds()).workArea.height-40),minWidth:460,minHeight:400,autoHideMenuBar:true,frame:true,show:true,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}}}
     : {action:'deny'});
   w.setMenuBarVisibility(false);
-  const prev = win;
   win = w;
-  if (settings.ui.always_on_top) w.setAlwaysOnTop(true, 'screen-saver');
-  w.setOpacity(settings.ui.opacity);
-  w.once('ready-to-show', () => w.show());
-  w.on('resize', saveBoundsSoon);
-  w.on('move', saveBoundsSoon);
+  w.once('ready-to-show', () => { if (!w.isDestroyed()) w.show(); });
+  w.on('resize', () => saveBoundsSoon());
+  w.on('move', () => saveBoundsSoon());
   w.on('closed', () => {
     if (win === w) win = null;
-    if (!quitting && !prev) return;
+    if (!quitting) app.quit();
   });
-  w.webContents.on('page-title-updated', (e) => e.preventDefault());
-  await w.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { compact: compact ? '1' : '0' } });
-  if (prev && !prev.isDestroyed()) prev.destroy();
+  w.on('page-title-updated', (e) => e.preventDefault());
+  await w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  if (!w.isDestroyed() && !w.isVisible()) w.show();
+}
+
+const EXTERNAL_URL = 'http://127.0.0.1:' + COCKPIT_PORT + '/panel.html';
+
+function applyExternalAppearance(settings: Settings): void {
+  if (!external || external.isDestroyed()) return;
+  external.setAlwaysOnTop(settings.ui.always_on_top, settings.ui.always_on_top ? 'screen-saver' : 'normal');
+  external.setOpacity(settings.ui.opacity);
+}
+
+function setExternalPanel(on: boolean): Promise<boolean> {
+  const next = externalRequest.then(() => updateExternalPanel(on));
+  externalRequest = next.catch(() => false);
+  return next;
+}
+
+async function updateExternalPanel(on: boolean): Promise<boolean> {
+  if (quitting || !panelRuntime) return false;
+  if (!on || !panelAvailable) {
+    if (external && !external.isDestroyed()) external.close();
+    send('host:externalPanel', false);
+    return false;
+  }
+  if (external && !external.isDestroyed()) {
+    if (external.isMinimized()) external.restore();
+    external.show();
+    external.focus();
+    return true;
+  }
+  const settings = await panelRuntime.settings();
+  const w = new BrowserWindow({
+    title: APP_NAME + ' - External panel',
+    ...windowBounds(settings.window, 640, 270, 320, 240),
+    minWidth: 320, minHeight: 240, frame: true, autoHideMenuBar: true,
+    backgroundColor: '#0b0e13', icon: windowIcon(), show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  w.setMenuBarVisibility(false);
+  external = w;
+  applyExternalAppearance(settings);
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (event, url) => { if (url !== EXTERNAL_URL) event.preventDefault(); });
+  w.on('page-title-updated', (event) => event.preventDefault());
+  w.on('resize', () => saveBoundsSoon(true));
+  w.on('move', () => saveBoundsSoon(true));
+  w.on('closed', () => {
+    if (external === w) external = null;
+    if (!quitting) {
+      send('host:externalPanel', false);
+    }
+  });
+  try {
+    await w.loadURL(EXTERNAL_URL);
+    if (w.isDestroyed() || external !== w || quitting) return false;
+    w.setTitle(APP_NAME + ' - External panel');
+    w.show();
+    send('host:externalPanel', true);
+    return true;
+  } catch (e) {
+    if (!w.isDestroyed()) w.close();
+    console.error('Could not open external panel', e);
+    return false;
+  }
+}
+
+async function showDesktop(): Promise<void> {
+  if (!initialized) return;
+  if (openingWindow) { await openingWindow; return; }
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return;
+  }
+  if (!openingWindow) {
+    openingWindow = createWindow().finally(() => { openingWindow = null; });
+  }
+  await openingWindow;
 }
 
 function registerIpc(): void {
   ipcMain.handle('store:list', () => store.list());
   ipcMain.handle('store:load', (_e, id: string) => store.load(id));
-  ipcMain.handle('store:save', (_e, p: Profile) => store.save(p));
-  ipcMain.handle('store:remove', (_e, id: string) => store.remove(id));
-  ipcMain.handle('store:getSettings', () => store.getSettings());
-  ipcMain.handle('store:setSettings', (_e, s: Settings) => store.setSettings(s));
+  ipcMain.handle('store:save', async (_e, p: Profile) => { await store.save(p); await panelRuntime?.refresh(); });
+  ipcMain.handle('store:remove', async (_e, id: string) => { await store.remove(id); await panelRuntime?.refresh(); });
+  ipcMain.handle('store:getSettings', () => panelRuntime ? panelRuntime.settings() : store.getSettings());
+  ipcMain.handle('store:setSettings', async (_e, s: Settings) => {
+    if (!panelRuntime || quitting) return;
+    await panelRuntime.updateSettings(s);
+    const current = await panelRuntime.settings();
+    if (quitting) return;
+    applyExternalAppearance(current);
+    startSource(desiredSource(current));
+  });
 
   ipcMain.handle('host:info', () => info());
   ipcMain.handle('host:wsgCatalog', () => loadPublishedWsgCatalog());
@@ -154,27 +261,32 @@ function registerIpc(): void {
     return true;
   });
   ipcMain.handle('host:setAlwaysOnTop', (_e, on: boolean) => {
-    // A high z-order level keeps the window above a windowed or borderless sim.
-    if (win) win.setAlwaysOnTop(!!on, on ? 'screen-saver' : 'normal');
+    if (external) external.setAlwaysOnTop(!!on, on ? 'screen-saver' : 'normal');
   });
   ipcMain.handle('host:setOpacity', (_e, o: number) => {
-    if (win) win.setOpacity(Math.max(0.3, Math.min(1, o)));
+    if (external) external.setOpacity(Math.max(0.3, Math.min(1, o)));
   });
-  ipcMain.handle('host:setCompact', async (_e, on: boolean) => {
-    await createWindow(!!on);
-  });
+  ipcMain.handle('host:setCompact', () => { /* retained legacy bridge command; main stays framed */ });
+  ipcMain.handle('host:getExternalPanel', () => !!external && !external.isDestroyed());
+  ipcMain.handle('host:setExternalPanel', (event, on: boolean) => event.sender === win?.webContents && typeof on === 'boolean' ? setExternalPanel(on) : false);
   ipcMain.handle('host:openProfilesFolder', () => shell.openPath(store.profilesDir));
   ipcMain.handle('host:quit', () => app.quit());
   ipcMain.handle('host:installPanel', () => installCockpitPanel(path.join(__dirname, 'panel', 'flaphappy-ingamepanel')));
-  ipcMain.handle('panel:state', (_e, state: CockpitState) => {
-    cockpitState = state;
+  ipcMain.handle('panel:getState',()=>panelRuntime?.getState()??null);
+  ipcMain.handle('panel:setBallast', (_e, profileId: string, f: number) => quitting ? false : panelRuntime?.setBallast(f, profileId));
+
+  ipcMain.handle('source:start', () => {
+    const sample = panelRuntime?.getState().sample;
+    if (sample) send('sample', sample);
+  });
+  ipcMain.handle('source:stop', () => { /* the session, not a window, owns telemetry */ });
+  ipcMain.handle('source:setLvar', () => { /* selected profile is owned by the session */ });
+  ipcMain.handle('source:simulateControls', (event, controls: SimControls) => {
+    if (event.sender === win?.webContents && source instanceof SimulatedSource && controls && typeof controls === 'object') {
+      source.controls = controls;
+    }
   });
 
-  ipcMain.handle('source:start', () => startSource());
-  ipcMain.handle('source:stop', () => stopSource());
-  ipcMain.handle('source:setLvar', (_e, name: string | null) => {
-    if (source && source.setLvarName) source.setLvarName(name);
-  });
 }
 
 async function smokeAndCapture(): Promise<void> {
@@ -187,38 +299,63 @@ async function smokeAndCapture(): Promise<void> {
   }
   if (cli.smoke) {
     const result = (await w.webContents.executeJavaScript(
-      `({ title: document.title, cells: document.querySelectorAll('.fh-cell').length, ticks: document.querySelectorAll('.fh-tick').length, profile: window.__flapHappy ? window.__flapHappy.profileId() : null })`,
-    )) as { title: string; cells: number; ticks: number; profile: string | null };
+      `({ title: document.title, controls: document.querySelectorAll('.fh-main-controls').length, profile: window.__flapHappy ? window.__flapHappy.profileId() : null })`,
+    )) as { title: string; controls: number; profile: string | null };
     const metas = await store.list();
     console.log('SMOKE_RESULT ' + JSON.stringify({ ...result, library: metas.map((m) => m.id), userData: app.getPath('userData') }));
-    app.exit(result.cells > 0 && result.title === APP_NAME ? 0 : 1);
+    app.exit(result.controls === 1 && result.title === APP_NAME ? 0 : 1);
     return;
   }
   app.quit();
 }
 
-if (!app.requestSingleInstanceLock() && !cli.userData) {
+const haveLock = app.requestSingleInstanceLock();
+if (!haveLock || cli.quit) {
   app.quit();
 } else {
+  app.on('second-instance', (_event, argv) => {
+    const requested = parseCli(argv);
+    if (requested.quit) { app.quit(); return; }
+    if (quitting) return;
+    void showDesktop().catch(e => console.error('Could not open Flap Happy', e));
+  });
   app.whenReady().then(async () => {
     store = new FileProfileStore(app.getPath('userData'));
     await store.getSettings();
     registerIpc();
+    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),matchPublishedWsgAircraft,state=>send('panel:active',state),desiredSource(await store.getSettings()));
+    await panelRuntime.initialize();
     try {
       await startPanelServer({
         root: path.join(__dirname, 'renderer'),
         version: app.getVersion(),
-        getState: () => cockpitState,
-        onBallast: (profileId, f) => { if (win && !win.isDestroyed()) win.webContents.send('panel:ballast', { profileId, f }); },
+        getState: () => panelRuntime?.getState() ?? null,
+        onBallast: async (profileId,f) => {
+          if (quitting) return false;
+          return panelRuntime ? panelRuntime.setBallast(f,profileId) : false;
+        },
       });
+      panelAvailable = true;
     } catch (e) {
       console.error('Cockpit panel server did not start', e);
     }
-    await createWindow(true);
+    initialized = true;
+    const settings = await panelRuntime.settings();
+    startSource(desiredSource(settings));
+    await showDesktop();
+    if (settings.ui.external_panel_on_launch) await setExternalPanel(true);
     if (cli.smoke || cli.screenshot) void smokeAndCapture();
   });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    if (panelRuntime && !quitting) {
+      // Drain queued preference writes before the session exits.
+      event.preventDefault();
+      quitting = true;
+      stopSource();
+      void panelRuntime.flush().finally(() => app.quit());
+      return;
+    }
     quitting = true;
     stopSource();
     if (recorder) recorder.end();

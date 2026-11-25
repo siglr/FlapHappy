@@ -94,15 +94,20 @@ describe('FileProfileStore (real JSON files)', () => {
     const a = new FileProfileStore(dir);
     expect((await a.getSettings())).toEqual(defaultSettings());
     a.setWindowBounds({ x: 10, y: 20, width: 700, height: 500 });
+    a.setMainWindowBounds({ x: 30, y: 40, width: 800, height: 600 });
     const s = await a.getSettings();
     s.ballast_by_profile.p = 0.6;
     s.ui.always_on_top = true;
+    s.ui.external_panel_on_launch = true;
     s.window = null;
+    s.main_window = null;
     await a.setSettings(s);
     const b = new FileProfileStore(dir);
     const loaded = await b.getSettings();
     expect(loaded.ballast_by_profile.p).toBe(0.6);
     expect(loaded.ui.always_on_top).toBe(true);
+    expect(loaded.ui.external_panel_on_launch).toBe(true);
+    expect(loaded.main_window).toEqual({ x: 30, y: 40, width: 800, height: 600 });
     expect(loaded.window).toEqual({ x: 10, y: 20, width: 700, height: 500 });
   });
 

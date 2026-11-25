@@ -113,6 +113,7 @@ export interface Settings {
     opacity: number;
     zoom: number;
     demo_mode: boolean;
+    external_panel_on_launch: boolean;
     /** The ballast slider on the display. */
     show_ballast: boolean;
     /** The height bar on the display. */
@@ -127,5 +128,7 @@ export interface Settings {
   /** Optional anonymous WSG profile browsing; off by default. */
   wsg_profiles_enabled: boolean;
   wsg_profile_overrides: WsgOverrideMap;
+  /** Original ribbon bounds retained for the optional external panel. */
   window: WindowBounds | null;
+  main_window: WindowBounds | null;
 }

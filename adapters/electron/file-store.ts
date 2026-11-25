@@ -93,11 +93,12 @@ export class FileProfileStore implements ProfileStore {
     return JSON.parse(JSON.stringify(this.settings)) as Settings;
   }
 
-  /** Replaces the settings but keeps the main-process-owned window bounds unless the caller sets them. */
+  /** Replaces settings while keeping main-process-owned window bounds. */
   async setSettings(s: Settings): Promise<void> {
     const cur = await this.getSettings();
     const next = normalizeSettings(s);
-    if (next.window === null) next.window = cur.window;
+    next.window = cur.window;
+    next.main_window = cur.main_window;
     this.settings = next;
     this.flushSettings();
   }
@@ -105,6 +106,12 @@ export class FileProfileStore implements ProfileStore {
   setWindowBounds(b: Settings['window']): void {
     const cur = this.settings ?? normalizeSettings(null);
     this.settings = { ...cur, window: b };
+    this.flushSettings();
+  }
+
+  setMainWindowBounds(b: Settings['main_window']): void {
+    const cur = this.settings ?? normalizeSettings(null);
+    this.settings = { ...cur, main_window: b };
     this.flushSettings();
   }
 

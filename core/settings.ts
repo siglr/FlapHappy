@@ -13,10 +13,11 @@ export function defaultSettings(): Settings {
     units: 'kt',
     height: 'ft',
     agl: defaultAglScale(),
-    ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, show_ballast: true, show_agl: true, show_transitions: false, show_wind: true, bar_shading: true },
+    ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, external_panel_on_launch: false, show_ballast: true, show_agl: true, show_transitions: false, show_wind: true, bar_shading: true },
     wsg_profiles_enabled: false,
     wsg_profile_overrides: {},
     window: null,
+    main_window: null,
   };
 }
 
@@ -36,11 +37,12 @@ export function normalizeSettings(raw: unknown): Settings {
   const ballast: Record<string, number> = {};
   const b = obj(r.ballast_by_profile);
   for (const k of Object.keys(b)) if (typeof b[k] === 'number' && isFinite(b[k] as number)) ballast[k] = clamp01(b[k] as number);
-  const w = obj(r.window);
-  const win =
-    typeof w.x === 'number' && typeof w.y === 'number' && typeof w.width === 'number' && typeof w.height === 'number'
-      ? { x: w.x, y: w.y, width: w.width, height: w.height }
-      : null;
+  const bounds = (raw: unknown) => {
+    const w = obj(raw);
+    return typeof w.x === 'number' && typeof w.y === 'number' && typeof w.width === 'number' && typeof w.height === 'number' &&
+      [w.x, w.y, w.width, w.height].every(Number.isFinite) && w.width > 0 && w.height > 0
+      ? { x: w.x, y: w.y, width: w.width, height: w.height } : null;
+  };
   const num = (x: unknown, def: number, lo: number, hi: number) =>
     typeof x === 'number' && isFinite(x) ? Math.max(lo, Math.min(hi, x)) : def;
   const units: SpeedUnit = r.units === 'kmh' ? 'kmh' : 'kt';
@@ -70,6 +72,7 @@ export function normalizeSettings(raw: unknown): Settings {
       opacity: num(ui.opacity, d.ui.opacity, 0.3, 1),
       zoom: num(ui.zoom, d.ui.zoom, 0.5, 3),
       demo_mode: ui.demo_mode === true,
+      external_panel_on_launch: ui.external_panel_on_launch === true,
       show_ballast: ui.show_ballast !== false,
       show_agl: ui.show_agl !== false,
       show_transitions: ui.show_transitions === true,
@@ -78,6 +81,7 @@ export function normalizeSettings(raw: unknown): Settings {
     },
     wsg_profiles_enabled: r.wsg_profiles_enabled === true,
     wsg_profile_overrides: normalizeWsgOverrides(r.wsg_profile_overrides),
-    window: win,
+    window: bounds(r.window),
+    main_window: bounds(r.main_window),
   };
 }

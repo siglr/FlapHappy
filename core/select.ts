@@ -42,3 +42,7 @@ export function resolveProfileChoice(metas: ProfileMeta[], settings: Settings, t
   if (local.length === 1) return {kind:'local',id:local[0].id};
   return valid(selection.fallbackId) ? {kind:'fallback',id:selection.fallbackId} : {kind:'none'};
 }
+/** Stable exact local binding when simulator add-on and span are available. */
+export function aircraftBindingKey(title:string,container?:string|null,span?:number|null):string {
+ return container&&typeof span==='number'&&isFinite(span)&&span>0?JSON.stringify([title,container.toLowerCase(),Math.round(span*10)/10]):title;
+}

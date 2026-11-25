@@ -94,6 +94,12 @@ export class BridgeHost implements Host {
   quit(): void {
     void this.bridge.invoke('host:quit');
   }
+  getExternalPanel(): Promise<boolean> {
+    return this.bridge.invoke('host:getExternalPanel') as Promise<boolean>;
+  }
+  setExternalPanel(on: boolean): Promise<boolean> {
+    return this.bridge.invoke('host:setExternalPanel', on) as Promise<boolean>;
+  }
   installCockpitPanel(): Promise<string> {
     return this.bridge.invoke('host:installPanel') as Promise<string>;
   }

@@ -8,6 +8,7 @@ export interface CliOptions {
   protocol: 'SunRise' | 'KittyHawk' | 'FSX_SP2' | 'FSX_SP1';
   userData: string | null;
   compact: boolean;
+  quit: boolean;
   smoke: boolean;
   screenshot: string | null;
 }
@@ -41,6 +42,7 @@ export function parseCli(argv: string[]): CliOptions {
     protocol: proto === 'KittyHawk' || proto === 'FSX_SP2' || proto === 'FSX_SP1' ? proto : 'SunRise',
     userData: kv['user-data'] ?? null,
     compact: kv.compact === 'true',
+    quit: kv.quit === 'true',
     smoke: kv.smoke === 'true',
     screenshot: kv.screenshot && kv.screenshot !== 'true' ? kv.screenshot : null,
   };

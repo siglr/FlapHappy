@@ -16,7 +16,7 @@ async function boot(): Promise<void> {
   const root = document.getElementById('app') as HTMLElement;
   const q = new URLSearchParams(window.location.search);
   const bridge = window.flapHappyBridge;
-  const sim = new SimulatedSource();
+  const sim = new SimulatedSource(undefined, bridge ? controls => { void bridge.invoke('source:simulateControls', controls).catch(() => {}); } : undefined);
   let app: App;
 
   if (bridge) {

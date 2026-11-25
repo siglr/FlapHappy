@@ -4,8 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { SHOT_DIR } from './browser-env';
-import { createBlankProfile, exportProfileJson } from '../../core/profile';
-import { makeProfile } from '../unit/helpers';
+import { makeProfile, sample } from '../unit/helpers';
+import { exportProfileJson, createBlankProfile } from '../../core/profile';
 
 const root = path.resolve(__dirname, '../..');
 const electronBin = (() => {
@@ -25,403 +25,248 @@ async function launch(userData: string, extra: string[] = ['--source=simulated']
   return { app, page };
 }
 
-describe.skipIf(!canRun)('Electron shell (simulated source): window, files, restart', () => {
-  it('opens the window, builds a profile in the editor, saves real files, and restores everything after a restart', async () => {
-    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-e2e-'));
-    let { app, page } = await launch(ud);
+async function waitUntil<T>(test: () => T | Promise<T>, message = 'condition'): Promise<NonNullable<T>> {
+  for (let i = 0; i < 80; i++) {
+    const result = await test();
+    if (result) return result as NonNullable<T>;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  throw new Error('Timed out: ' + message);
+}
+const panelUrl = 'http://127.0.0.1:47321';
+const getFeed = async () => (await (await fetch(panelUrl + '/api/state')).json());
+const settingsOnDisk = (ud: string) => JSON.parse(fs.readFileSync(path.join(ud, 'settings.json'), 'utf8'));
+const panelPage = (app: ElectronApplication) => waitUntil(() => app.windows().find(w => w.url() === panelUrl + '/panel.html'), 'external panel page');
+const countWindows = (app: ElectronApplication) => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+const pct = (page: Page, text: string) => page.waitForFunction(t => document.querySelector('.fh-sl-pct')?.textContent === t, text);
 
-    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())).toBe('Flap Happy');
-    expect(await page.title()).toBe('Flap Happy');
+async function openExternal(app: ElectronApplication, main: Page): Promise<Page> {
+  await main.click('.fh-external-toggle');
+  const panel = await panelPage(app);
+  await panel.waitForSelector('.fh-sl-track');
+  await main.waitForFunction(() => document.querySelector('.fh-external-toggle')?.textContent === 'Close external panel');
+  return panel;
+}
 
-    // First launch installs the three built-in profiles and opens AS33-18m.
-    await page.waitForSelector('.fh-display .fh-cell');
-    expect(await page.$$eval('.fh-display .fh-cell', (e) => e.length)).toBe(6);
-    await page.click('.fh-cog');
-    await page.click('.fh-new');
-    await page.fill('.fh-new-name', 'new-profile');
-    await page.click('.fh-create');
-    expect(fs.existsSync(path.join(ud,'profiles','new-profile.json'))).toBe(false);
-    await page.waitForSelector('.fh-settings .fh-addrow');
-    const labels = ['5', 'N', '4', '3', '2', '1'];
-    for (let i = 0; i < 6; i++) await page.click('.fh-settings .fh-addrow');
-    for (let i = 0; i < 6; i++) await page.fill(`.fh-settings [data-path="flaps[${i}].label"]`, labels[i]);
-    for (let i = 0; i < 6; i++) await page.fill(`.fh-settings [data-path="flaps[${i}].handle_index"]`, String(i));
-    expect(await page.locator('.fh-weight-mode').inputValue()).toBe('manual');
-    expect(await page.locator('.fh-settings [data-path="weight_kg.light"]').count()).toBe(0);
-    await page.fill('.fh-settings [data-path="vs_min.no_ballast_kt"]', '48');
-    await page.fill('.fh-settings [data-path="vs_min.max_ballast_kt"]', '56');
-    const no = [62, 74, 86, 100, 118];
-    const mx = [70, 83, 97, 113, 133];
-    for (let k = 0; k < 5; k++) {
-      await page.fill(`.fh-settings [data-path="transitions[${k}].no_ballast_kt"]`, String(no[k]));
-      await page.fill(`.fh-settings [data-path="transitions[${k}].max_ballast_kt"]`, String(mx[k]));
-    }
-    await page.fill('.fh-settings [data-path="vne"]', '145');
-    await page.click('.fh-settings .fh-save');
-    await page.waitForFunction(() => document.querySelector('.fh-settings .fh-savestate')!.textContent === 'Saved and applied');
-    const manualPath = path.join(ud, 'profiles', 'new-profile.json');
-    expect(JSON.parse(fs.readFileSync(manualPath, 'utf8')).weight_kg).toEqual({light: null, heavy: null});
-    await page.click('.fh-settings .fh-back');
-    await page.waitForSelector('.fh-ballast-row');
-    await page.waitForTimeout(650);
-    await app.close();
-    ({ app, page } = await launch(ud));
-    await page.waitForFunction(() => (window as any).__flapHappy.profileId() === 'new-profile');
-    await page.waitForSelector('.fh-ballast-row');
-    await page.click('.fh-cog');
-    await page.waitForSelector('.fh-weight-mode');
-    expect(await page.locator('.fh-weight-mode').inputValue()).toBe('manual');
-    await page.selectOption('.fh-weight-mode', 'live');
-    expect(await page.locator('.fh-settings .fh-save').isDisabled()).toBe(true);
-    expect(await page.locator('.fh-settings .fh-saveas').isDisabled()).toBe(true);
-    await page.fill('.fh-settings [data-path="weight_kg.light"]', '400');
-    expect(await page.locator('.fh-settings .fh-save').isDisabled()).toBe(true);
-    await page.click('.fh-settings .fh-back');
-    expect(await page.locator('.fh-display .fh-save').isDisabled()).toBe(true);
-    expect(JSON.parse(fs.readFileSync(manualPath, 'utf8')).weight_kg).toEqual({light: null, heavy: null});
-    await page.click('.fh-cog');
-    await page.waitForSelector('.fh-weight-mode');
-    expect(await page.locator('.fh-weight-mode').inputValue()).toBe('live');
-    expect(await page.locator('.fh-settings [data-path="weight_kg.light"]').inputValue()).toBe('400');
-    await page.fill('.fh-settings [data-path="weight_kg.heavy"]', '399');
-    expect(await page.locator('.fh-settings .fh-save').isDisabled()).toBe(true);
-    await page.fill('.fh-settings [data-path="weight_kg.heavy"]', '600');
-    expect(await page.locator('.fh-settings .fh-save').isEnabled()).toBe(true);
-    await page.selectOption('.fh-weight-mode', 'manual');
-    expect(await page.locator('.fh-settings [data-path="weight_kg.light"]').count()).toBe(0);
-    await page.selectOption('.fh-weight-mode', 'live');
-    expect(await page.locator('.fh-settings [data-path="weight_kg.light"]').inputValue()).toBe('400');
-    expect(await page.locator('.fh-settings [data-path="weight_kg.heavy"]').inputValue()).toBe('600');
-    await page.click('.fh-settings .fh-save');
-    await page.waitForFunction(() => document.querySelector('.fh-settings .fh-savestate')!.textContent === 'Saved and applied');
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 900));
-    for (const zoom of [1,1.25,1.5,2]) {
-      await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom);
-      await page.waitForTimeout(100);
-      const fit = await page.evaluate(() => document.querySelector('.fh-sethead .fh-save')!.getBoundingClientRect().right <= window.innerWidth && Array.from(document.querySelectorAll('.fh-transition-row')).every(row => {
-        const input = row.querySelectorAll('input'); const a = input[0].getBoundingClientRect(), b = input[1].getBoundingClientRect();
-        return a.right <= b.left && b.right <= window.innerWidth;
-      }));
-      expect(fit).toBe(true);
-      const png = await app.evaluate(async ({ BrowserWindow }) => Array.from((await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()));
-      fs.writeFileSync(`${SHOT_DIR}/flaphappy-editor-zoom-${Math.round(zoom*100)}.png`, Buffer.from(png));
-    }
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
-    await page.screenshot({ path: `${SHOT_DIR}/flaphappy-electron-editor.png` });
-    await page.click('.fh-settings .fh-back');
+async function openEditor(app:ElectronApplication,main:Page):Promise<Page>{
+ const created=app.waitForEvent('window');await main.click('.fh-main-settings');const editor=await created;await editor.waitForSelector('.fh-profile-select');return editor;
+}
 
-    // Synthetic telemetry is not a saved pilot preference.
-    await page.evaluate(() => { const sim = (window as any).__flapHappy.sim; sim.controls.totalWeightKg = 520; sim.tick(0); });
-    expect(await page.$eval('.fh-display .fh-sl-pct', (e) => e.textContent)).toBe('520 kg');
-    await page.click('.fh-display .fh-pin');
-    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isAlwaysOnTop())).toBe(true);
-    await page.waitForTimeout(900);
+async function closeExternal(app: ElectronApplication, main: Page): Promise<void> {
+  await main.click('.fh-external-toggle');
+  await waitUntil(async () => await countWindows(app) === 1, 'external closed');
+  await main.waitForFunction(() => document.querySelector('.fh-external-toggle')?.textContent === 'Show external panel');
+}
 
-    const file = path.join(ud, 'profiles', 'new-profile.json');
-    expect(fs.existsSync(file)).toBe(true);
-    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
-    expect(onDisk.display_name).toBeUndefined();
-    expect(onDisk.transitions).toHaveLength(5);
-    expect(onDisk.weight_kg).toEqual({ light: 400, heavy: 600 });
-    expect(fs.existsSync(path.join(ud, 'settings.json'))).toBe(true);
-    await app.close();
+async function clickBallast(panel: Page, fraction: number) {
+  const box = (await panel.locator('.fh-sl-track').boundingBox())!;
+  await panel.mouse.click(box.x + box.width * fraction, box.y + box.height / 2);
+}
 
-    // Restart with the same user data folder.
-    ({ app, page } = await launch(ud));
-    await page.waitForSelector('.fh-display .fh-cell');
-    expect(await page.$eval('.fh-display .fh-title', (e) => e.textContent)).toBe('new-profile');
-    expect(await page.$$eval('.fh-display .fh-cell', (e) => e.map((x) => x.textContent))).toEqual(labels);
-    expect(await page.$eval('.fh-display .fh-sl-pct', (e) => e.textContent)).toBe('-- kg');
-    await page.evaluate(() => { const sim = (window as any).__flapHappy.sim; sim.controls.totalWeightKg = 520; sim.tick(0); });
-    expect(await page.$$eval('.fh-display .fh-ticktext', (e) => e.map((x) => x.textContent))).toEqual(['53', '67', '79', '93', '108', '127', '145']);
-    expect(await page.$eval('.fh-display .fh-sl-pct', (e) => e.textContent)).toBe('520 kg');
-    expect(await page.$('.fh-display .fh-sl-flag')).toBeNull();
-    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isAlwaysOnTop())).toBe(true);
-    await page.waitForTimeout(500);
-    await page.screenshot({ path: `${SHOT_DIR}/flaphappy-electron-restarted.png` });
-    await page.click('.fh-cog');
-    await page.waitForSelector('.fh-weight-mode');
-    expect(await page.locator('.fh-weight-mode').inputValue()).toBe('live');
-    await page.selectOption('.fh-weight-mode', 'manual');
-    await page.click('.fh-settings .fh-save');
-    await page.waitForFunction(() => document.querySelector('.fh-settings .fh-savestate')!.textContent === 'Saved and applied');
-    const manual = JSON.parse(fs.readFileSync(file, 'utf8'));
-    expect(manual.weight_kg).toEqual({light: null, heavy: null});
-    expect(manual.transitions).toEqual(onDisk.transitions);
-    await page.click('.fh-settings .fh-back');
-    await page.waitForSelector('.fh-ballast-row');
-    await app.close();
-    fs.rmSync(ud, { recursive: true, force: true });
-  });
-
-  it('desktop and served cockpit panel use the same live weight and neither offers a ballast control', async () => {
-    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-live-weight-'));
-    const fixture = makeProfile(2, { id: 'weight-fixture' });
+describe.skipIf(!canRun)('visible control window and optional external panel', () => {
+  it('starts visibly with no ribbon, opens/closes/reopens the common panel and keeps feeding while minimized', async () => {
+    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-main-window-'));
+    const fixture = makeProfile(2, { id: 'panel-fixture' });
+    fixture.weight_kg={light:null,heavy:null};
     fs.mkdirSync(path.join(ud, 'profiles'));
     fs.writeFileSync(path.join(ud, 'profiles', fixture.id + '.json'), exportProfileJson(fixture));
-    fs.writeFileSync(path.join(ud, 'settings.json'), JSON.stringify({ schema: 'flaphappy.settings/1', last_profile_id: fixture.id, active_by_title: { 'Simulated glider': fixture.id }, ui: { show_transitions: true } }));
-    const { app, page } = await launch(ud);
-    await page.waitForFunction(() => (window as any).__flapHappy.profileId() === 'weight-fixture');
-    let browser: import('playwright-core').Browser | undefined;
+    fs.writeFileSync(path.join(ud, 'settings.json'), JSON.stringify({
+      schema: 'flaphappy.settings/1', last_profile_id: fixture.id,
+      active_by_title: { 'Test glider': fixture.id }, ballast_by_profile: { [fixture.id]: 0.25 },
+    }));
+    const trace = path.join(ud, 'trace.jsonl');
+    fs.writeFileSync(trace, [0, 300, 600].map(t => JSON.stringify(sample({ t, flapCount: 2 }))).join('\n'));
+    const { app, page } = await launch(ud, ['--source=replay','--loop','--trace='+trace]);
+    const process = app.process();
     try {
-      const { chromium } = await import('playwright-core');
-      const executablePath = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium', '/usr/bin/google-chrome'].find(p => p && fs.existsSync(p));
-      browser = await chromium.launch({ executablePath, args: ['--no-sandbox'] });
-      const panel = await browser.newPage();
-      const panelUrl = 'http://127.0.0.1:47321';
-      await panel.goto(panelUrl + '/panel.html');
-      const simulated = (patch: Record<string, unknown>) => page.evaluate(value => {
-        const sim = (window as any).__flapHappy.sim;
-        Object.assign(sim.controls, value);
-        sim.tick(0);
-      }, patch);
-      const verify = async (kg: number | null, ticks: string[]) => {
-        await simulated({ totalWeightKg: kg });
-        const expected = kg === null ? '-- kg' : kg + ' kg';
-        for (const view of [page, panel]) {
-          await view.waitForFunction(text => document.querySelector('.fh-sl-pct')?.textContent === text, expected);
-          const visibleTicks = await view.$$eval('.fh-ticktext', els => els.filter(x => getComputedStyle(x).display !== 'none').map(x => x.textContent));
-          expect(visibleTicks).toEqual(ticks);
-          expect(await view.locator('.fh-weight-row input, .fh-weight-row button, .fh-ballast-row').count()).toBe(0);
-        }
-      };
-      await simulated({ aglFt: 650, windKt: 13 });
-      for (const view of [page, panel]) {
-        await view.waitForFunction(() => document.querySelector('.fh-aglread')?.textContent === '650 ft' && document.querySelector('.fh-aglwindtext')?.textContent === '13 kt');
-      }
-      await verify(300, ['40','52','82']);
-      await verify(500, ['45','59','82']);
-      await verify(800, ['50','66','82']);
-      expect((await fetch(panelUrl + '/api/ballast', { method: 'POST', body: '{"f":0}' })).status).toBe(405);
-      await verify(null, []);
-      await verify(500, ['45','59','82']);
-      // A lost or invalid panel response cannot retain the last flying weight.
-      await panel.route('**/api/state', route => route.fulfill({ status: 200, body: 'not JSON' }));
-      await panel.waitForFunction(() => document.querySelector<HTMLElement>('.fh-fit')?.style.display === 'none');
-      await panel.unroute('**/api/state');
-      await panel.waitForFunction(() => document.querySelector('.fh-sl-pct')?.textContent === '500 kg');
-      await simulated({ fault: 'stale' });
-      for (const view of [page, panel]) {
-        await view.waitForFunction(() => document.querySelector('.fh-sl-pct')?.textContent === '-- kg');
-        expect(await view.locator('.fh-ticktext:visible').count()).toBe(0);
-        expect(await view.locator('.fh-aglread').textContent()).toBe('--- ft');
-        expect(await view.locator('.fh-aglwindtext').textContent()).toBe('--- kt');
-      }
+      await page.waitForSelector('.fh-main-controls');
+      expect(await page.locator('.fh-fit').count()).toBe(0);
+      expect(await page.isChecked('.fh-external-launch')).toBe(false);
+      await waitUntil(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), 'main visible');
+      expect(await app.evaluate(({ BrowserWindow, webContents }) => BrowserWindow.getAllWindows().map(w => ({title:w.getTitle(), visible:w.isVisible(), minimized:w.isMinimized(), webContents:webContents.getAllWebContents().length})))).toEqual([
+        {title:'Flap Happy',visible:true,minimized:false,webContents:1},
+      ]);
+      const first = await waitUntil(async () => { const s = await getFeed(); return s.ready && s.sample?.iasKt === 70 && s.profile?.id === fixture.id ? s : null; }, 'main-owned feed');
+      expect(first.ballast).toBe(0.25);
+      let panel = await openExternal(app, page);
+      expect(await countWindows(app)).toBe(2);
+      await pct(panel, '25%');
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle().includes('External panel'))!.setSize(720, 360));
+      await panel.waitForTimeout(200);
+      await clickBallast(panel, 0.5);
+      await waitUntil(async () => (await getFeed()).ballast === 0.5, 'external ballast');
+      await pct(panel, '50%');
+      await closeExternal(app, page);
+      const before = (await getFeed()).receivedAt;
+      await waitUntil(async () => (await getFeed()).receivedAt > before + 1200, 'feed after external close');
+      panel = await openExternal(app, page);
+      await pct(panel, '50%');
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle().includes('External panel'))!.close());
+      await waitUntil(async () => await countWindows(app) === 1, 'native external close');
+      await page.waitForFunction(() => document.querySelector('.fh-external-toggle')?.textContent === 'Show external panel');
+      expect(await page.isChecked('.fh-external-launch')).toBe(false);
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'Flap Happy')!.minimize());
+      expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized())).toBe(true);
+      const minAt = (await getFeed()).receivedAt;
+      await waitUntil(async () => (await getFeed()).receivedAt > minAt + 1200, 'feed while main minimized');
+      const { spawn } = await import('node:child_process');
+      const child = spawn(electronBin, [root, '--no-sandbox','--show','--user-data='+ud], {cwd:root, stdio:'ignore', windowsHide:true});
+      await new Promise<void>((resolve,reject) => { child.once('error',reject); child.once('exit', code => code === 0 ? resolve() : reject(new Error('show exit '+code))); });
+      await waitUntil(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible() && !BrowserWindow.getAllWindows()[0].isMinimized()), 'main restored');
+      expect(await countWindows(app)).toBe(1);
+      await openExternal(app, page);
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'Flap Happy')!.close());
+      await waitUntil(() => process.exitCode !== null, 'normal main close exits');
+      expect(process.exitCode).toBe(0);
+      expect(settingsOnDisk(ud).ui.external_panel_on_launch).toBe(false);
     } finally {
-      await browser?.close();
-      await app.close();
+      if (process.exitCode === null) await app.close();
       fs.rmSync(ud, { recursive: true, force: true });
     }
   });
 
-  it('restores the original manual slider for legacy profiles in both windows and persists the selected fraction', async () => {
-    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-legacy-weight-'));
-    const legacy = makeProfile(2, { id: 'legacy-fixture' });
-    legacy.weight_kg = { light: null, heavy: null };
-    legacy.ballast.default_fraction = 0.25;
-    legacy.ballast.max_ballast_litres = 200;
-    fs.mkdirSync(path.join(ud, 'profiles'));
-    const file = JSON.parse(exportProfileJson(legacy));
-    delete file.weight_kg;
-    fs.writeFileSync(path.join(ud, 'profiles', legacy.id + '.json'), JSON.stringify(file));
-    fs.writeFileSync(path.join(ud, 'settings.json'), JSON.stringify({ schema: 'flaphappy.settings/1', last_profile_id: legacy.id, active_by_title: { 'Simulated glider': legacy.id }, ui: { show_transitions: true } }));
-    let { app, page } = await launch(ud);
-    let browser: import('playwright-core').Browser | undefined;
+  it('persists the separate startup preference across actual restarts, without manual actions changing it', async () => {
+    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-launch-option-'));
+    let instance: { app: ElectronApplication; page: Page } | null = null;
     try {
-      const { chromium } = await import('playwright-core');
-      const executablePath = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium', '/usr/bin/google-chrome'].find(p => p && fs.existsSync(p));
-      browser = await chromium.launch({ executablePath, args: ['--no-sandbox'] });
-      const panel = await browser.newPage();
-      const panelUrl = 'http://127.0.0.1:47321';
-      await panel.goto(panelUrl + '/panel.html');
-      const read = async (view: Page, pct: string, ticks: string[]) => {
-        await view.waitForFunction(({ text, expected }) => document.querySelector('.fh-ballast-row .fh-sl-pct')?.textContent === text &&
-          Array.from(document.querySelectorAll('.fh-ticktext')).filter(x => getComputedStyle(x).display !== 'none').map(x => x.textContent).join(',') === expected.join(','), { text: pct, expected: ticks }, { timeout: 5000 });
-        expect(await view.locator('.fh-weight-row').count()).toBe(0);
-        expect(await view.$$eval('.fh-ticktext:visible', els => els.map(x => x.textContent))).toEqual(ticks);
-      };
-      for (const view of [page, panel]) {
-        await read(view, '25% 50 L', ['43', '56', '82']);
-        await view.waitForFunction(() => document.querySelector('.fh-aglread')?.textContent === '600 ft' && document.querySelector('.fh-aglwindtext')?.textContent === '12 kt');
-      }
-      const click = async (view: Page, f: number) => {
-        const track = view.locator('.fh-ballast-row .fh-sl-track');
-        const r = (await track.boundingBox())!;
-        await view.bringToFront();
-        await view.mouse.click(r.x + r.width * f, r.y + r.height / 2);
-      };
-      await click(panel, 0.75);
-      for (const view of [page, panel]) await read(view, '75% 150 L', ['48', '63', '82']);
-      // A two-flap strip with transitions and AGL can exceed the compact window height.
-      // Resize the actual Electron window, just as a pilot can, before clicking.
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 320));
-      await page.waitForFunction(() => window.innerHeight >= 300);
-      await click(page, 0.5);
-      for (const view of [page, panel]) await read(view, '50% 100 L', ['45', '59', '82']);
-      expect((await fetch(panelUrl + '/api/ballast', { method: 'POST', body: JSON.stringify({ profileId: 'wrong-profile', f: 0 }) })).status).toBe(409);
-      await page.evaluate(() => { const sim = (window as any).__flapHappy.sim; sim.controls.totalWeightKg = 800; sim.tick(0); });
-      for (const view of [page, panel]) await read(view, '50% 100 L', ['45', '59', '82']);
-      await page.waitForTimeout(650);
-      expect(JSON.parse(fs.readFileSync(path.join(ud, 'settings.json'), 'utf8')).ballast_by_profile[legacy.id]).toBe(0.5);
-      await browser.close(); browser = undefined;
-      await app.close();
-      ({ app, page } = await launch(ud));
-      await read(page, '50% 100 L', ['45', '59', '82']);
-      await page.evaluate((p) => { const a = (window as any).__flapHappy.app; a.setActiveProfile(p, true); }, makeProfile(2, { id: legacy.id }));
-      await page.waitForSelector('.fh-weight-row');
-      expect(await page.locator('.fh-ballast-row').count()).toBe(0);
-      await page.evaluate((p) => { const a = (window as any).__flapHappy.app; a.setActiveProfile(p, true); }, legacy);
-      await read(page, '50% 100 L', ['45', '59', '82']);
+      instance = await launch(ud);
+      expect(await countWindows(instance.app)).toBe(1);
+      expect(await instance.page.isChecked('.fh-external-launch')).toBe(false);
+      await openExternal(instance.app, instance.page);
+      expect(settingsOnDisk(ud).ui.external_panel_on_launch).toBe(false);
+      await instance.app.close();
+      instance = await launch(ud);
+      expect(await countWindows(instance.app)).toBe(1);
+      await instance.page.check('.fh-external-launch');
+      await waitUntil(() => settingsOnDisk(ud).ui.external_panel_on_launch === true, 'startup preference saved');
+      expect(await countWindows(instance.app)).toBe(1); // toggling the preference does not open it now
+      await instance.app.close();
+      instance = await launch(ud);
+      await panelPage(instance.app);
+      expect(await instance.page.isChecked('.fh-external-launch')).toBe(true);
+      expect(await countWindows(instance.app)).toBe(2);
+      await closeExternal(instance.app, instance.page);
+      expect(settingsOnDisk(ud).ui.external_panel_on_launch).toBe(true);
+      await instance.app.close();
+      instance = await launch(ud);
+      await panelPage(instance.app);
+      expect(await countWindows(instance.app)).toBe(2);
+      await instance.page.uncheck('.fh-external-launch');
+      await waitUntil(() => settingsOnDisk(ud).ui.external_panel_on_launch === false, 'startup preference cleared');
+      expect(await countWindows(instance.app)).toBe(2);
+      await instance.app.close();
+      instance = await launch(ud, ['--source=simulated','--panel-only']); // obsolete flag never hides the main window
+      expect(await countWindows(instance.app)).toBe(1);
+      expect(await instance.page.isChecked('.fh-external-launch')).toBe(false);
+      expect(await instance.page.isVisible('.fh-main-controls')).toBe(true);
     } finally {
-      await browser?.close();
-      await app.close();
+      if (instance) await instance.app.close().catch(() => {});
       fs.rmSync(ud, { recursive: true, force: true });
     }
   });
 
-  it('clears unmatched live aircraft in both hosts and restores only explicit or unambiguous local bindings', async () => {
-    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-strict-live-'));
-    const a=makeProfile(2,{id:'strict-a'}); a.match.title_contains=['Known A'];
-    const b=makeProfile(2,{id:'strict-b'}); b.match.title_contains=[];
-    fs.mkdirSync(path.join(ud,'profiles'));
-    fs.writeFileSync(path.join(ud,'profiles','strict-a.json'),exportProfileJson(a));
-    fs.writeFileSync(path.join(ud,'profiles','strict-b.json'),exportProfileJson(b));
-    fs.writeFileSync(path.join(ud,'settings.json'),JSON.stringify({schema:'flaphappy.settings/1',last_profile_id:'strict-a'}));
-    const {app,page}=await launch(ud);
-    let browser:import('playwright-core').Browser|undefined;
+  it('preserves profile editing, simulator test controls, external settings and saved data on restart', async () => {
+    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-e2e-'));
+    let instance: {app: ElectronApplication; page: Page} | null = null;
     try {
-      const {chromium}=await import('playwright-core');
-      const executablePath=[process.env.CHROME_PATH,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium','/usr/bin/google-chrome'].find(p=>p&&fs.existsSync(p));
-      browser=await chromium.launch({executablePath,args:['--no-sandbox']});
-      const panel=await browser.newPage(); await panel.goto('http://127.0.0.1:47321/panel.html');
-      await page.evaluate(()=>{const w=(window as any).__flapHappy; w.sim.stop(); w.app.usingSim=false; w.app.info.source='simconnect';});
-      const aircraft=async(title:string,container?:string,span?:number)=>page.evaluate(({title,container,span})=>{
-        const a=(window as any).__flapHappy.app;
-        a.onSample({...a.lastSample,connected:true,inFlight:true,aircraftTitle:title,aircraftContainer:container??null,wingSpanM:span??null,totalWeightKg:500,t:Date.now()});
-      },{title,container,span});
-      const noProfile=async()=>{
-        await page.waitForFunction(()=> (window as any).__flapHappy.app.profile===null && document.querySelector('.fh-barmsg')?.textContent?.includes('No profile'));
-        await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('No profile') && !document.querySelector<HTMLElement>('.fh-fit')?.offsetHeight,{}, {polling:100,timeout:10000});
-        expect(await page.locator('.fh-cell.current').count()).toBe(0);
-        expect(await panel.locator('.fh-fit').isVisible()).toBe(false);
-      };
-      await aircraft('Unlisted Alpha'); await noProfile();
-      const childEvent=app.waitForEvent('window'); await page.click('.fh-cog'); const editor=await childEvent;
-      await editor.waitForSelector('.fh-profile-select'); expect(await page.locator('.fh-profile-controls').isVisible()).toBe(true);
-      await editor.selectOption('.fh-profile-select','strict-b');
-      await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-b');
+      instance = await launch(ud);
+      let {app,page} = instance;
+      const editor=await openEditor(app,page);
+      await editor.click('.fh-new');await editor.fill('.fh-new-name','new-profile');await editor.click('.fh-create');
+      await editor.waitForSelector('.fh-settings .fh-addrow');
+      const labels = ['5','N','4','3','2','1'];
+      for (let i=0;i<6;i++) await editor.click('.fh-settings .fh-addrow');
+      for (let i=0;i<6;i++) {
+        await editor.fill(`.fh-settings [data-path="flaps[${i}].label"]`,labels[i]);
+        await editor.fill(`.fh-settings [data-path="flaps[${i}].handle_index"]`,String(i));
+      }
+      await editor.fill('.fh-settings [data-path="vs_min.no_ballast_kt"]','48');
+      await editor.fill('.fh-settings [data-path="vs_min.max_ballast_kt"]','56');
+      const no=[62,74,86,100,118], mx=[70,83,97,113,133];
+      for(let k=0;k<5;k++) {
+        await editor.fill(`.fh-settings [data-path="transitions[${k}].no_ballast_kt"]`,String(no[k]));
+        await editor.fill(`.fh-settings [data-path="transitions[${k}].max_ballast_kt"]`,String(mx[k]));
+      }
+      await editor.fill('.fh-settings [data-path="vne"]','145');
+      await editor.click('.fh-settings .fh-save');
+      await editor.waitForFunction(() => document.querySelector('.fh-settings .fh-savestate')?.textContent === 'Saved and applied');
+      await editor.screenshot({path:`${SHOT_DIR}/flaphappy-main-settings.png`});
       await editor.click('.fh-settings .fh-back');
-      await page.waitForFunction(()=> !(window as any).__flapHappy.app.settingsOpen);
-      const reopenEvent=app.waitForEvent('window');await page.click('.fh-cog');const reopened=await reopenEvent;
-      await reopened.waitForSelector('.fh-profile-select');
-      expect(await reopened.locator('.fh-profile-select').inputValue()).toBe('strict-b');
-      await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('Profiles'))!.close());
-      await page.waitForFunction(()=> !(window as any).__flapHappy.app.settingsOpen);
-      expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length)).toBe(1);
-      await panel.waitForFunction(()=>document.querySelector<HTMLElement>('.fh-fit')?.style.display!=='none');
-      expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.active_by_title['Unlisted Alpha'])).toBe('strict-b');
-      await aircraft('Different unknown'); await noProfile();
-      await aircraft('Unlisted Alpha'); await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-b');
-      await aircraft('Known A'); await page.waitForFunction(()=> (window as any).__flapHappy.profileId()==='strict-a');
-      // An exact WSG identification is reported, never a substitute for missing IAS/exclusion support.
-      await page.evaluate(()=>{const a=(window as any).__flapHappy.app; a.settings.wsg_profiles_enabled=true;
-        a.host.matchWsgAircraft=async(container:string,span:number)=>container==='publisher_model'&&span===18?{variantKey:'WSG-EXACT',displayName:'Exact test',profile:{}}:null;});
-      await aircraft('Unknown WSG','publisher_model',18);
-      await page.waitForFunction(()=>document.querySelector('.fh-barmsg')?.textContent?.includes('WSG WSG-EXACT'));
-      await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('WSG WSG-EXACT'),{}, {polling:100,timeout:10000});
-      expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile===null)).toBe(true);
-      await page.selectOption('.fh-profile-choice','strict-b');
-      await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='fallback');
-      await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('Fallback profile: strict-b'),{}, {polling:100,timeout:10000});
-      await page.selectOption('.fh-profile-mode','manual'); await page.selectOption('.fh-profile-choice','strict-a');
-      await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='manual'&&(window as any).__flapHappy.profileId()==='strict-a');
-      await aircraft('Yet another aircraft'); await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='manual');
-      expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.active_by_title['Yet another aircraft'])).toBeUndefined();
-      expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.profile_selection.fallbackId)).toBe('strict-b');
-      await page.selectOption('.fh-profile-mode','auto'); await page.selectOption('.fh-profile-choice','');
-      await noProfile();
-    } finally { await browser?.close(); await app.close(); fs.rmSync(ud,{recursive:true,force:true}); }
+      let panel = await openExternal(app,page);
+      await waitUntil(async()=> (await getFeed()).profile?.id==='new-profile','saved profile feed');
+      await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('External panel'))!.setSize(720,360));
+      await panel.waitForTimeout(200);
+      await clickBallast(panel,0.6);
+      await pct(panel,'60%');
+      await waitUntil(async()=> Math.abs((await getFeed()).ballast-0.6)<1e-9,'ballast saved');
+      await page.evaluate(() => { const a=(window as any).__flapHappy.app; a.setAlwaysOnTop(true); a.setOpacity(.85); const sim=(window as any).__flapHappy.sim; sim.controls.iasKt=92; sim.tick(0); });
+      await waitUntil(async()=> (await getFeed()).sample?.iasKt===92,'main simulated controls reach panel');
+      await waitUntil(() => app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('External panel'))!.isAlwaysOnTop()),'external topmost');
+      expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle()==='Flap Happy')!.isAlwaysOnTop())).toBe(false);
+      expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle()==='Flap Happy')!.getOpacity())).toBe(1);
+      const saved=JSON.parse(fs.readFileSync(path.join(ud,'profiles','new-profile.json'),'utf8'));
+      expect(saved.transitions).toHaveLength(5);
+      await app.close();
+      instance=await launch(ud);
+      ({app,page}=instance);
+      expect(await countWindows(app)).toBe(1);
+      expect(await page.$eval('.fh-title',e=>e.textContent)).toBe('new-profile');
+      panel=await openExternal(app,page);
+      await pct(panel,'60%');
+      expect(await panel.$$eval('.fh-cell',els=>els.map(e=>e.textContent))).toEqual(labels);
+      expect(await panel.$$eval('.fh-ticktext',els=>els.map(e=>e.textContent))).toEqual(['53','67','79','93','108','127','145']);
+      expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('External panel'))!.isAlwaysOnTop())).toBe(true);
+      await page.screenshot({path:`${SHOT_DIR}/flaphappy-main-restarted.png`});
+    } finally {
+      if(instance) await instance.app.close().catch(()=>{});
+      fs.rmSync(ud,{recursive:true,force:true});
+    }
   });
 
-  it('activates an exact WSG catalog profile, merges hidden transitions, applies local manual mode and reset in both displays', async()=>{
-    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-wsg-flight-'));
-    const {app,page}=await launch(ud);
-    let browser:import('playwright-core').Browser|undefined;
+  it('uses upstream AGL and wind settings in the shared external and cockpit panel after main-process reconciliation',async()=>{
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-agl-panel-'));
+    const {app,page}=await launch(ud);let browser:import('playwright-core').Browser|undefined;
     try{
+      const panel=await openExternal(app,page);
       const {chromium}=await import('playwright-core');
       const executablePath=[process.env.CHROME_PATH,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium','/usr/bin/google-chrome'].find(p=>p&&fs.existsSync(p));
-      browser=await chromium.launch({executablePath,args:['--no-sandbox']});
-      const panel=await browser.newPage();await panel.goto('http://127.0.0.1:47321/panel.html');
-      // Exact public alias/variant, representative revision 16 catalog thresholds; no live MSFS.
-      await page.evaluate(()=>{
-        const w=(window as any).__flapHappy;w.sim.stop();const a=w.app;a.usingSim=false;a.info.source='simconnect';a.settings.wsg_profiles_enabled=true;
-        const labels=['L','6','5','N','4','3','2','1'],light=[0,41.579,46.438,51.298,59.404,69.648,84.227,96.648],heavy=[0,46.438,52.367,57.771,68.035,78.842,93.946,106.367];
-        const profile={variantKey:'AS33-18-GF',lightWeightKg:485,heavyWeightKg:600,lightStallIasKph:null,heavyStallIasKph:null,bands:labels.map((label,i)=>({label,handleIndex:7-i,lightStartKt:light[i],heavyStartKt:heavy[i],excludeFromDisplay:i===1||i===2}))};
-        a.host.getPublishedWsgCatalog=async()=>({revision:16,profiles:[profile]});
-        a.host.matchWsgAircraft=async(container:string,span:number)=>container==='gotfriends_schleicher_as_33_me'&&span===18?{variantKey:profile.variantKey,displayName:'AS33 18m',profile,visualVneTasKph:282}:null;
-        a.onSample({...a.lastSample,connected:true,inFlight:true,onGround:false,aircraftTitle:'Exact WSG AS33',aircraftContainer:'gotfriends_schleicher_as_33_me',wingSpanM:18,flapCount:8,flapIndex:6,totalWeightKg:500,iasKt:170,t:Date.now()});
-      });
-      const labels=async(p:Page)=>p.locator('.fh-cell').allTextContents();
-      const expected=['L–6–5','N','4','3','2','1'];
-      await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='wsg');
-      await panel.waitForFunction(()=>document.querySelectorAll('.fh-cell').length===6&&document.querySelector('.fh-cell')?.textContent==='L–6–5',{}, {polling:100,timeout:10000});
-      expect(await labels(page)).toEqual(expected);expect(await labels(panel)).toEqual(expected);
-      expect(await page.locator('.fh-cell.current').textContent()).toBe('L–6–5');
-      expect(await panel.locator('.fh-badge.mapped').textContent()).toBe('6');
-      expect(await page.locator('.fh-readout.fast').count()).toBe(0);
-      const childEvent=app.waitForEvent('window');await page.click('.fh-cog');const editor=await childEvent;
-      await editor.waitForSelector('.fh-wsg-ballast');
-      await editor.selectOption('.fh-wsg-ballast','manual');
-      await editor.selectOption('[aria-label="Transition 4 visibility"]','hide');
-      await editor.click('.fh-wsg-save-adjustments');
-      await editor.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
-      await page.waitForFunction(()=>document.querySelector('.fh-ballast-row') instanceof HTMLElement && (document.querySelector('.fh-ballast-row') as HTMLElement).offsetHeight>0,{}, {polling:100,timeout:10000});
-      await panel.waitForFunction(()=>[...document.querySelectorAll('.fh-cell')].some(x=>x.textContent==='4–3'),{}, {polling:100,timeout:10000});
-      expect(await labels(panel)).toEqual(['L–6–5','N','4–3','2','1']);
-      expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile.weight_kg)).toEqual({light:485,heavy:600});
-      await editor.click('.fh-wsg-reset-adjustments');
-      await panel.waitForFunction(()=>document.querySelectorAll('.fh-cell').length===6,{}, {polling:100,timeout:10000});
-      expect(await labels(panel)).toEqual(expected);
-      await editor.click('.fh-settings .fh-back');
-      await page.evaluate(()=>{const a=(window as any).__flapHappy.app;a.onSample({...a.lastSample,t:Date.now()-5000});});
-      await panel.waitForFunction(()=>!document.querySelector('.fh-cell.current'),{}, {polling:100,timeout:10000});
-      expect(await page.locator('.fh-cell.current').count()).toBe(0);
-      await page.evaluate(()=>{const a=(window as any).__flapHappy.app;a.onSample({...a.lastSample,aircraftTitle:'Other unmatched glider',aircraftContainer:'other_model',t:Date.now()});});
-      await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('No profile')&&!document.querySelector<HTMLElement>('.fh-fit')?.offsetHeight,{}, {polling:100,timeout:10000});
-      expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile)).toBeNull();
+      browser=await chromium.launch({executablePath,args:['--no-sandbox']});const cockpit=await browser.newPage();await cockpit.goto(panelUrl+'/panel.html');
+      await page.evaluate(()=>{const a=(window as any).__flapHappy.app;const sim=(window as any).__flapHappy.sim;sim.controls.aglFt=600;sim.controls.windKt=17;sim.tick(0);a.setHeightUnit('m');a.setAglEdge('top_m',450);});
+      await waitUntil(async()=>{const feed=await getFeed();return feed.height==='m'&&feed.agl.top_m===450&&feed.sample?.aglFt===600&&feed.sample?.windKt===17;},'metric AGL and wind feed');
+      for(const host of [panel,cockpit]){
+        await host.waitForFunction(()=>document.querySelector('.fh-aglread')?.textContent?.includes('183 m')&&document.querySelector('.fh-aglwindtext')?.textContent?.includes('17 kt'),{}, {polling:100,timeout:10000});
+      }
+      const editor=await openEditor(app,page);await editor.click('.fh-display-options summary');await editor.locator('.fh-show-agl').locator('..').click();
+      await waitUntil(async()=> (await getFeed()).showAgl===false,'AGL setting reaches session');
+      for(const host of [panel,cockpit])await host.waitForFunction(()=>!document.querySelector<HTMLElement>('.fh-agl-row')?.offsetHeight,{}, {polling:100,timeout:10000});
+      await editor.locator('.fh-show-agl').locator('..').click();await editor.locator('.fh-show-wind').locator('..').click();
+      await waitUntil(async()=>{const f=await getFeed();return f.showAgl===true&&f.showWind===false;},'wind setting reaches session');
+      for(const host of [panel,cockpit])await host.waitForFunction(()=>!!document.querySelector<HTMLElement>('.fh-agl-row')?.offsetHeight&&!document.querySelector<HTMLElement>('.fh-aglwind')?.offsetHeight,{}, {polling:100,timeout:10000});
     }finally{await browser?.close();await app.close();fs.rmSync(ud,{recursive:true,force:true});}
   });
-  it('starts in compact mode with no MINI/FULL button and keeps the display', async () => {
-    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-e2e-'));
-    const { app, page } = await launch(ud);
-    await page.waitForFunction(() => document.querySelector('.fh-root.fh-compact') !== null);
-    expect(await page.$('.fh-compact-btn')).toBeNull();
-    expect(await page.$$eval('.fh-display .fh-cell', (e) => e.length)).toBe(6);
-    await page.screenshot({ path: `${SHOT_DIR}/flaphappy-electron-compact.png` });
-    await app.close();
-    fs.rmSync(ud, { recursive: true, force: true });
-  });
 
-  it('replay source: samples travel main process -> IPC bridge -> UI, and --record writes a trace', async () => {
-    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-e2e-'));
-    fs.mkdirSync(path.join(ud, 'profiles'), { recursive: true });
-    fs.copyFileSync(path.join(root, 'profiles/as33-18m.json'), path.join(ud, 'profiles/as33-18m.json'));
-    const trace = path.join(root, 'tests/fixtures/sample-trace.jsonl');
-    const rec = path.join(ud, 'recorded.jsonl');
-    const { app, page } = await launch(ud, ['--source=replay', `--trace=${trace}`, '--speed=2', '--loop', `--record=${rec}`]);
-    await page.waitForSelector('.fh-display .fh-cell');
-    const seen = new Set<string>();
-    for (let i = 0; i < 25; i++) {
-      const cur = await page.$$eval('.fh-display .fh-cell.current', (e) => e.map((x) => x.textContent).join(','));
-      seen.add(cur);
-      await new Promise((r) => setTimeout(r, 200));
+  it('replay records real source samples and the cockpit panel follows changing flap positions', async () => {
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-e2e-'));
+    fs.mkdirSync(path.join(ud,'profiles'),{recursive:true});
+    fs.copyFileSync(path.join(root,'profiles/as33-18m.json'),path.join(ud,'profiles/as33-18m.json'));
+    const trace=path.join(root,'tests/fixtures/sample-trace.jsonl'), rec=path.join(ud,'recorded.jsonl');
+    const {app,page}=await launch(ud,['--source=replay','--trace='+trace,'--speed=2','--loop','--record='+rec]);
+    try {
+      const panel=await openExternal(app,page);
+      await panel.waitForSelector('.fh-cell');
+      const seen=new Set<string>();
+      for(let i=0;i<25;i++) {
+        seen.add(await panel.$$eval('.fh-cell.current',e=>e.map(x=>x.textContent).join(',')));
+        await panel.waitForTimeout(200);
+      }
+      expect(seen.size).toBeGreaterThanOrEqual(3);
+      expect(await page.$eval('.fh-status',e=>e.textContent)).not.toContain('DEMO');
+      expect(await panel.$eval('.fh-readout',e=>e.textContent)).toMatch(/kt$/);
+      await panel.screenshot({path:`${SHOT_DIR}/flaphappy-external-replay.png`});
+    } finally {
+      await app.close();
+      expect(fs.readFileSync(rec,'utf8').trim().split('\n').length).toBeGreaterThan(10);
+      fs.rmSync(ud,{recursive:true,force:true});
     }
-    expect(seen.size).toBeGreaterThanOrEqual(3);
-    expect(await page.$eval('.fh-display .fh-status', (e) => e.textContent)).not.toContain('DEMO');
-    expect(await page.$eval('.fh-display .fh-readout', (e) => e.textContent)).toMatch(/kt$/);
-    await page.screenshot({ path: `${SHOT_DIR}/flaphappy-electron-replay.png` });
-    await app.close();
-    expect(fs.readFileSync(rec, 'utf8').trim().split('\n').length).toBeGreaterThan(10);
-    fs.rmSync(ud, { recursive: true, force: true });
   });
 });

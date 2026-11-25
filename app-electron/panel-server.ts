@@ -22,7 +22,7 @@ export function startPanelServer(opts: {
   root: string;
   version: string;
   getState: () => CockpitState | null;
-  onBallast: (profileId: string, f: number) => void;
+  onBallast: (profileId:string,f:number)=>void|boolean|Promise<void|boolean>;
 }): Promise<Server> {
   const server = createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -63,8 +63,7 @@ export function startPanelServer(opts: {
         json(res, 409, { ok: false });
         return;
       }
-      opts.onBallast(body.profileId, Math.max(0, Math.min(1, body.f)));
-      json(res, 200, { ok: true });
+      try { const applied=await opts.onBallast(body.profileId,Math.max(0,Math.min(1,body.f)));json(res,applied===false?409:200,{ok:applied!==false}); } catch { json(res,500,{ok:false}); }
       return;
     }
     if (req.method !== 'GET') {

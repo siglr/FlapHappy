@@ -81,6 +81,9 @@ export interface HostInfo {
   source: 'simconnect' | 'simulated' | 'replay';
   /** Show the dev control panel. */
   dev: boolean;
+  /** Electron control window; telemetry and optional ribbon are hosted by the main process. */
+  mainWindow?: boolean;
+  panelAvailable?: boolean;
   version: string;
   platform: string;
 }
@@ -99,4 +102,6 @@ export interface Host {
   quit(): void;
   /** Copy the in-sim toolbar panel into the MSFS Community folder. Returns a status message. */
   installCockpitPanel(): Promise<string>;
+  setExternalPanel?(on: boolean): Promise<boolean>;
+  getExternalPanel?(): Promise<boolean>;
 }

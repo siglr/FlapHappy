@@ -65,7 +65,7 @@ export class SimulatedSource implements DataSource {
   private clock: () => number;
   private last = 0;
 
-  constructor(clock: () => number = () => Date.now()) {
+  constructor(clock: () => number = () => Date.now(), private publishControls?: (controls: SimControls) => void) {
     this.clock = clock;
   }
 
@@ -132,6 +132,7 @@ export class SimulatedSource implements DataSource {
 
   tick(dtMs: number): void {
     this.last += dtMs;
+    this.publishControls?.({ ...this.controls });
     const s = this.snapshot();
     if (this.controls.fault === 'stale' && this.controls.connected) return;
     if (this.cb) this.cb(s);

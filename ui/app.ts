@@ -1,7 +1,7 @@
+import type { CockpitState } from '../core/cockpit';
 import type { WsgAircraftMatch } from '../core/wsg-reference';
 import { wsgFlightProfile,wsgBoundaries } from '../core/wsg-flight';
 import type { DataSource, Host, HostInfo, ProfileStore, SimSample } from '../core/sim';
-import type { CockpitState } from '../core/cockpit';
 import type { Profile, ProfileMeta, Settings, ValidationResult } from '../core/types';
 import { validateProfile } from '../core/validate';
 import { CurrentFlapResolver, type CurrentFlap } from '../core/flapmap';
@@ -51,8 +51,11 @@ export class App {
   private smoothIas: number | null = null;
   private smoothAgl: number | null = null;
   private smoothAt = 0;
-  private strip!: StripView;
-  private slider!: WeightControl;
+  private strip?: StripView;
+  private slider?: WeightControl;
+  private externalBtn: HTMLButtonElement | null = null;
+  private launchCheck: HTMLInputElement | null = null;
+  private externalOpen = false;
   private displayView!: HTMLElement;
   private statusEl!: HTMLElement;
   private titleEl!: HTMLElement;
@@ -118,6 +121,7 @@ export class App {
           if (preferred) {
             this.settings.last_profile_id = preferred.id;
             await this.deps.store.setSettings(this.settings);
+    if(this.deps.info.mainWindow)await this.readRuntimeState();
           }
         }
       }
@@ -126,17 +130,33 @@ export class App {
     this.installDrop();
 
     this.usingSim = this.deps.info.source === 'simulated' || this.settings.ui.demo_mode || !this.deps.realSource;
-    const id = this.strictLiveSelection() ? null : selectProfileId(this.metas, this.settings, null);
+    const id = this.deps.info.mainWindow||this.strictLiveSelection() ? null : selectProfileId(this.metas, this.settings, null);
     if (id) await this.activate(id, false);
     else this.renderAll();
     this.startSource();
     this.applyHostSettings();
-    window.flapHappyBridge?.on('panel:ballast', (value) => {
-      const change = value as { profileId?: string; f?: number };
-      if (change?.profileId === this.profile?.id && typeof change.f === 'number') this.setManualBallast(change.f, true);
-    });
+    const bridge = window.flapHappyBridge;
+    if (bridge) {
+      bridge.on('panel:ballast', (f) => {
+        if (typeof f === 'number' && isFinite(f)) this.setManualBallast(f,true,true);
+        else if (this.deps.info.mainWindow && f && typeof f === 'object') {
+          const update = f as { profileId?: string; f?: number };
+          if (typeof update.profileId === 'string' && typeof update.f === 'number' && isFinite(update.f)) {
+            this.settings.ballast_by_profile[update.profileId] = update.f;
+            if (this.profile?.id === update.profileId) this.setManualBallast(update.f,true,true);
+          }
+        }
+      });
+    }
+    if (this.deps.info.mainWindow && bridge) {
+      bridge.on('panel:active',value=>this.syncRuntimeState(value as CockpitState));
+      await this.readRuntimeState();
+      bridge.on('host:externalPanel', value => { this.externalOpen = value === true; this.paintExternal(); });
+      this.externalOpen = await this.host.getExternalPanel?.() ?? false;
+      this.paintExternal();
+    }
     setInterval(() => this.renderAll(), 500);
-    if (!this.profile && !this.strictLiveSelection()) this.openSettings();
+    if (!this.profile && !this.deps.info.mainWindow&&!this.strictLiveSelection()) this.openSettings();
   }
 
   // ---------------------------------------------------------------- UI shell
@@ -146,8 +166,10 @@ export class App {
     clear(root);
     root.className = 'fh-root' + (this.deps.compact ? ' fh-compact' : '');
 
-    this.slider = new WeightControl((f) => this.setManualBallast(f, true));
-    this.strip = new StripView({ weightRow: this.slider.el });
+    if (!this.deps.info.mainWindow) {
+      this.slider = new WeightControl((f)=>this.setManualBallast(f,true));
+      this.strip = new StripView({ weightRow: this.slider.el });
+    }
     this.titleEl = h('div', { class: 'fh-title' }, 'Flap Happy');
     this.statusEl = h('div', { class: 'fh-status' });
 
@@ -156,18 +178,33 @@ export class App {
 
     const caps = this.deps.host.capabilities;
     const buttons: HTMLElement[] = [];
-    if (caps.alwaysOnTop) {
+    if (caps.alwaysOnTop && !this.deps.info.mainWindow) {
       this.pinBtn = iconBtn('PIN', 'Keep window on top', () => this.toggleAlwaysOnTop(), 'fh-pin');
       buttons.push(this.pinBtn);
     }
     this.saveBtn = h('button', { class: 'fh-btn fh-save', type: 'button', title: 'Save profile', disabled: true, onclick: () => void this.saveProfile() }, 'Save') as HTMLButtonElement;
-    buttons.push(this.saveBtn);
-    buttons.push(iconBtn('\u2699', 'Settings', () => this.openSettings(), 'fh-cog'));
+    if(!this.deps.info.mainWindow)buttons.push(this.saveBtn);
+    if (!this.deps.info.mainWindow) buttons.push(iconBtn('\u2699', 'Settings', () => this.openSettings(), 'fh-cog'));
     if (this.deps.compact && caps.compact) buttons.push(iconBtn('\u00d7', 'Close', () => this.deps.host.quit(), 'fh-close'));
 
     const header = h('div', { class: 'fh-header' }, h('div', { class: 'fh-head-text' }, this.titleEl, this.statusEl), h('div', { class: 'fh-head-btns' }, ...buttons));
     this.profileControls=h('div',{class:'fh-profile-controls'});
-    this.displayView = h('div', { class: 'fh-display' }, header, this.profileControls, this.strip.el);
+    if (this.deps.info.mainWindow) {
+      this.externalBtn = h('button', { class: 'fh-btn fh-external-toggle', type: 'button', onclick: () => void this.toggleExternal() }, 'Show external panel') as HTMLButtonElement;
+      this.launchCheck = h('input', { class: 'fh-external-launch', type: 'checkbox', checked: this.settings.ui.external_panel_on_launch,
+        onchange: (e: Event) => { this.settings.ui.external_panel_on_launch = (e.target as HTMLInputElement).checked; this.persistSoon(); } }) as HTMLInputElement;
+      const controls = h('div', { class: 'fh-main-controls' },
+        h('h1', null, 'Flap Happy'),
+        h('p', { class: 'fh-main-copy' }, 'The in-sim panel is available while Flap Happy runs. Open the external panel only when you want a desktop flight display.'),
+        h('div', { class: 'fh-main-actions' }, this.externalBtn,
+          h('button', { class: 'fh-btn fh-main-settings', type: 'button', onclick: () => this.openSettings() }, 'Settings and profiles')),
+        h('label', { class: 'fh-check fh-main-launch' }, this.launchCheck, ' Open the external panel on launch'),
+        h('p', { class: 'fh-hint' }, this.deps.info.panelAvailable ? 'Install the in-sim panel from Settings > Window and app.' : 'Panel feed unavailable. Check that another instance is not using the cockpit port.'));
+      this.displayView = h('div', { class: 'fh-display fh-main-display' }, controls, header, this.profileControls);
+      this.paintExternal();
+    } else {
+      this.displayView = h('div', { class: 'fh-display' }, header, this.profileControls, this.strip!.el);
+    }
     this.settingsHost = h('div', { class: 'fh-settings-host' });
     root.appendChild(this.displayView);
     root.appendChild(this.settingsHost);
@@ -182,8 +219,8 @@ export class App {
   private paintProfileControls():void {
     if(!this.profileControls)return;
     const root=this.profileControls;
-    root.style.display=this.strictLiveSelection()?'':'none';
-    if(!this.strictLiveSelection())return;
+    root.style.display=this.deps.info.mainWindow||this.strictLiveSelection()?'':'none';
+    if(!this.deps.info.mainWindow&&!this.strictLiveSelection())return;
     const choice=this.settings.profile_selection;
     const candidates=this.metas.filter(m=>!m.error&&!m.incomplete);
     const signature=JSON.stringify([choice,candidates.map(m=>m.id),this.profile?.id,this.activeProfileSource,this.detectedWsgVariant]);
@@ -245,15 +282,17 @@ export class App {
     this.smoothIas = null;
     this.smoothAgl = null;
     this.lastSample = null;
-    this.lastTitle = null;
-    this.liveBindingKey = null;
+    if(!this.deps.info.mainWindow){this.lastTitle = null;this.liveBindingKey = null;}
     this.liveSelectionGeneration++;
     this.manualPick = false;
-    if (this.strictLiveSelection()) {
+    if (!this.deps.info.mainWindow&&this.strictLiveSelection()) {
       this.clearLiveProfile('Waiting for MSFS aircraft.');
       if(this.settings.profile_selection.mode==='manual')this.refreshLiveProfileSelection();
     }
-    if (this.usingSim) {
+    if (d.info.mainWindow && d.realSource) {
+      d.realSource.start((s) => this.onSample(s));
+      if (this.usingSim) d.sim.start(() => {}); // synthetic control updates only; the session emits samples
+    } else if (this.usingSim) {
       this.syncSimToProfile();
       d.sim.start((s) => this.onSample(s));
     } else if (d.realSource) {
@@ -283,7 +322,7 @@ export class App {
     const previousCount=this.lastSample?.flapCount;
     this.lastSample = s;
     this.lastRx = this.deps.info.source === 'replay' && !this.usingSim ? now : s.t;
-    if (this.strictLiveSelection()) {
+    if (!this.deps.info.mainWindow&&this.strictLiveSelection()) {
       const title = s.connected && s.aircraftTitle?.trim() ? s.aircraftTitle : null;
       const binding = title ? this.bindingForSample(s, title) : null;
       if (binding !== this.liveBindingKey) {
@@ -296,7 +335,7 @@ export class App {
         const effective=wsgFlightProfile(this.activeWsgMatch,this.settings.wsg_profile_overrides);
         if(effective&&validateProfile(effective,{liveHandleCount:s.flapCount}).ok){this.activeProfileSource='wsg';this.setActiveProfile(effective,true);}
       }
-    } else if (s.connected && s.aircraftTitle && s.aircraftTitle !== this.lastTitle) {
+    } else if (!this.deps.info.mainWindow&&s.connected && s.aircraftTitle && s.aircraftTitle !== this.lastTitle) {
       this.lastTitle = s.aircraftTitle;
       void this.autoSelectForTitle(s.aircraftTitle);
     }
@@ -315,6 +354,24 @@ export class App {
     this.renderAll();
   }
 
+  private async readRuntimeState():Promise<void>{
+    const state=await window.flapHappyBridge?.invoke('panel:getState') as CockpitState|null;
+    if(state)this.syncRuntimeState(state);
+  }
+  private syncRuntimeState(state:CockpitState):void{
+    if(!this.deps.info.mainWindow)return;
+    this.lastTitle=state.aircraftTitle??null;this.liveBindingKey=state.aircraftBindingKey??null;
+    this.detectedWsgVariant=state.detectedWsgVariant??null;this.activeProfileSource=state.profileSource??'none';
+    this.noProfileMessage=state.noProfileMessage??'';
+    const changed=this.profile?.id!==state.profile?.id;
+    this.profile=state.profile;this.validation=this.profile?validateProfile(this.profile,{liveHandleCount:state.sample?.flapCount}):null;
+    if(this.profile&&!this.profile.wsg)this.settings.last_profile_id=this.profile.id;
+    this.ballast={f:state.ballast,unconfirmed:false,restored:false};
+    if(changed){this.resolver.reset();this.smoothIas=this.smoothAgl=null;}
+    if(state.sample&&state.receivedAt>=this.lastRx){this.lastSample=state.sample;this.lastRx=state.receivedAt;}
+    this.renderAll();
+  }
+
   private strictLiveSelection(): boolean {
     return !this.usingSim && this.deps.info.source === 'simconnect';
   }
@@ -326,6 +383,7 @@ export class App {
   }
 
   refreshLiveProfileSelection(): void {
+    if(this.deps.info.mainWindow){void this.persistNow();return;}
     if (!this.strictLiveSelection()) return;
     const generation=++this.liveSelectionGeneration;
     this.clearLiveProfile(this.lastTitle?'No profile for this aircraft. Choose a custom profile in Settings.':'Waiting for MSFS aircraft.');
@@ -336,7 +394,7 @@ export class App {
   setProfileSelection(mode:'auto'|'manual',field?:'manualId'|'fallbackId',id?:string|null):void {
     this.settings.profile_selection.mode=mode;
     if(field) this.settings.profile_selection[field]=id??null;
-    this.persistSoon();this.refreshLiveProfileSelection();
+    if(this.deps.info.mainWindow)void this.persistNow();else{this.persistSoon();this.refreshLiveProfileSelection();}
   }
 
   private clearLiveProfile(message: string): void {
@@ -387,6 +445,7 @@ export class App {
   /** Re-resolve saved edits against the exact already-confirmed aircraft, without
    * a second network dependency during editing. */
   refreshWsgAdjustments(key:string):void {
+    if(this.deps.info.mainWindow){void this.readRuntimeState();return;}
     if(this.activeWsgMatch?.variantKey!==key||!this.settings.wsg_profiles_enabled||this.settings.profile_selection.mode!=='auto')return;
     if(this.profile&&!this.profile.wsg&&this.activeProfileSource!=='fallback'&&this.activeProfileSource!=='local')return;
     const next=wsgFlightProfile(this.activeWsgMatch,this.settings.wsg_profile_overrides);
@@ -419,6 +478,12 @@ export class App {
       return;
     }
     if (this.strictLiveSelection() && (binding !== this.liveBindingKey || (generation !== undefined && generation !== this.liveSelectionGeneration))) return;
+    if(this.deps.info.mainWindow){
+      if(manual){if(this.settings.profile_selection.mode==='manual')this.settings.profile_selection.manualId=id;
+        else if(this.liveBindingKey)this.settings.active_by_title[this.liveBindingKey]=id;
+        else if(this.lastTitle)this.settings.active_by_title[this.lastTitle]=id;}
+      this.settings.last_profile_id=id;this.setUnsaved(null);await this.persistNow();return;
+    }
     if (manual) {
       this.manualPick = true;
       const key = this.strictLiveSelection() ? binding : this.lastTitle;
@@ -428,7 +493,8 @@ export class App {
     this.settings.last_profile_id = id;
     if (manual || !this.strictLiveSelection() || !this.unsaved) this.setUnsaved(null);
     this.setActiveProfile(p, true);
-    this.persistSoon();
+    if (this.deps.info.mainWindow) await this.persistNow();
+    else this.persistSoon();
   }
 
   /** Remember an edited profile until Save. Passing null clears the unsaved copy. */
@@ -475,7 +541,9 @@ export class App {
       if (this.strictLiveSelection()) ++this.liveSelectionGeneration;
     }
     this.settings.last_profile_id = d.id;
-    this.persistSoon();
+    if(did&&this.deps.info.mainWindow){if(this.settings.profile_selection.mode==='manual')this.settings.profile_selection.manualId=d.id;else if(this.liveBindingKey)this.settings.active_by_title[this.liveBindingKey]=d.id;else if(this.lastTitle)this.settings.active_by_title[this.lastTitle]=d.id;}
+    if (this.deps.info.mainWindow) await this.persistNow();
+    else this.persistSoon();
     this.setUnsaved(null);
     return did;
   }
@@ -514,11 +582,11 @@ export class App {
     this.renderAll();
   }
 
-  setManualBallast(f: number, touched: boolean): void {
+  setManualBallast(f: number, touched: boolean,fromMain=false): void {
     if (!usesManualBallast(this.profile) || !this.profile || !isFinite(f)) return;
     this.ballast = { f: clamp01(f), unconfirmed: touched ? false : this.ballast.unconfirmed, restored: touched ? false : this.ballast.restored };
     this.settings.ballast_by_profile[this.profile.id] = this.ballast.f;
-    this.persistSoon();
+    if(this.deps.info.mainWindow){if(!fromMain)void window.flapHappyBridge?.invoke('panel:setBallast',this.profile.id,this.ballast.f);}else this.persistSoon();
     this.renderAll();
   }
 
@@ -617,7 +685,7 @@ export class App {
     clear(this.settingsHost);
     // Electron live mode uses a separate native editor. It owns no telemetry or
     // persistence service; the controls work against this same App instance.
-    if(this.strictLiveSelection()&&window.flapHappyBridge){
+    if(this.deps.info.mainWindow&&window.flapHappyBridge){
       try{
         const editor=window.open('about:blank','flaphappy-profiles','popup,width=760,height=760');
         if(editor){
@@ -635,7 +703,7 @@ export class App {
       }catch{/* The browser harness or a blocked child can still open settings inline. */this.profileEditorWindow?.close();this.profileEditorWindow=null;}
     }
     this.settingsHost.appendChild(this.settingsView.el);
-    this.displayView.style.display = 'none';
+    if (!this.deps.info.mainWindow) this.displayView.style.display = 'none';
     this.settingsHost.style.display = 'block';
     void this.settingsView.init();
   }
@@ -661,6 +729,7 @@ export class App {
   // -------------------------------------------------------------- Persisting
 
   persistSoon(): void {
+    if (this.deps.info.mainWindow) { void this.persistNow().catch(e => console.error('Could not save panel settings', e)); return; }
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => void this.persistNow(), SAVE_DEBOUNCE_MS);
   }
@@ -669,6 +738,7 @@ export class App {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     await this.deps.store.setSettings(this.settings);
+    if(this.deps.info.mainWindow)await this.readRuntimeState();
   }
 
   // ---------------------------------------------------------------- Rendering
@@ -697,15 +767,15 @@ export class App {
   }
 
   renderAll(): void {
-    if (!this.strip) return;
+    if (!this.displayView) return;
     const model = this.buildModelFor(this.profile, this.validation);
     if (!this.profile && this.strictLiveSelection() && this.noProfileMessage) model.incompleteMessage = this.noProfileMessage;
     this.lastModel = model;
-    this.slider.render(this.profile, model.weight, this.ballast);
-    this.strip.render(model, { profile: this.profile, zoom: this.settings.ui.zoom, showBallast: this.settings.ui.show_ballast, showAgl: this.settings.ui.show_agl, showTransitions: this.settings.ui.show_transitions, showWind: this.settings.ui.show_wind, barShading: this.settings.ui.bar_shading });
+    this.slider?.render(this.profile, model.weight, this.ballast);
+    this.strip?.render(model, { profile: this.profile, zoom: this.settings.ui.zoom, showBallast: this.settings.ui.show_ballast, showAgl: this.settings.ui.show_agl, showTransitions: this.settings.ui.show_transitions, showWind: this.settings.ui.show_wind, barShading: this.settings.ui.bar_shading });
     setText(this.titleEl, this.profile ? profileLabel(this.profile.id) : 'Flap Happy');
     const bits: string[] = [];
-    if (model.statusText) bits.push(model.statusText);
+    if (model.statusText) bits.push(model.statusText);else if(this.deps.info.mainWindow&&model.link==='live')bits.push('Connected');
     if (this.strictLiveSelection() && this.profile && this.activeProfileSource==='fallback') bits.push('Fallback profile');
     if (this.usingSim) bits.push('DEMO');
     if (model.mode === 'noflaps') bits.push('no flaps');
@@ -715,32 +785,21 @@ export class App {
     this.paintSaveButton();
     this.paintProfileControls();
     if (this.onModel) this.onModel();
-    this.publishCockpit();
   }
 
-  /** Hand the live display to the in-sim panel. No-op in the browser harness. */
-  private publishCockpit(): void {
-    const bridge = window.flapHappyBridge;
-    if (!bridge) return;
-    const state: CockpitState = {
-      ready: true,
-      profile: this.profile,
-      noProfileMessage: this.profile ? undefined : this.noProfileMessage,
-      profileSource:this.profile?this.activeProfileSource:undefined,
-      sample: this.lastSample,
-      receivedAt: this.lastRx,
-      ballast: this.ballast.f,
-      units: this.settings.units === 'kmh' ? 'kmh' : 'kt',
-      height: this.settings.height === 'm' ? 'm' : 'ft',
-      agl: this.settings.agl,
-      zoom: this.settings.ui.zoom,
-      showBallast: this.settings.ui.show_ballast,
-      showAgl: this.settings.ui.show_agl,
-      showTransitions: this.settings.ui.show_transitions,
-      showWind: this.settings.ui.show_wind,
-      barShading: this.settings.ui.bar_shading,
-    };
-    void bridge.invoke('panel:state', state);
+  private paintExternal(): void {
+    if (!this.externalBtn) return;
+    this.externalBtn.textContent = this.externalOpen ? 'Close external panel' : 'Show external panel';
+    this.externalBtn.disabled = !this.deps.info.panelAvailable;
+    this.externalBtn.setAttribute('aria-pressed', String(this.externalOpen));
+  }
+
+  private async toggleExternal(): Promise<void> {
+    if (!this.externalBtn || !this.host.setExternalPanel) return;
+    this.externalBtn.disabled = true;
+    try { this.externalOpen = await this.host.setExternalPanel(!this.externalOpen); }
+    catch (e) { console.error('Could not change external panel', e); }
+    finally { this.paintExternal(); }
   }
 
   exportText(p: Profile): string {
