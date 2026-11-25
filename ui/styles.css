@@ -76,6 +76,21 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-cell.fh-long { font-size: 20px; }
 .fh-cell.current { background: #2f8fd8; color: #ffffff; }
 .fh-cells.grey { opacity: 0.5; }
+
+/* Simple gear-style guidance. Side cells are equal so the current flap cannot drift. */
+.fh-simple-row { display: flex; align-items: center; min-height: 72px; margin-bottom: 10px; }
+.fh-simple-side { flex: 1 1 0; min-width: 0; padding: 0 4px; text-align: center; }
+.fh-simple-current { display: flex; flex: none; align-items: center; justify-content: center; max-width: 62%; border-radius: 6px; background: #2168ad; color: white; padding: 4px 8px; min-height: 66px; }
+.fh-simple-current.unknown { background: #263444; }
+.fh-simple-actual { font-size: 48px; font-weight: 700; line-height: 1.1; text-align: center; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fh-simple-arrow { display: block; flex: none; width: 22px; height: 26px; visibility: hidden; margin: 0 10px; position: relative; }
+.fh-simple-arrow.on { visibility: visible; }
+.fh-simple-arrow::before { content: ''; position: absolute; top: 0; width: 0; height: 0; border-top: 13px solid transparent; border-bottom: 13px solid transparent; }
+.fh-simple-arrow.slower::before { border-right: 22px solid #b2dfff; right: 0; }
+.fh-simple-arrow.faster::before { border-left: 22px solid #b2dfff; left: 0; }
+.fh-simple-pill { display: inline-block; max-width: 100%; padding: 4px 8px; border-radius: 6px; background: #ffda91; color: #1b2b38; font-weight: 700; text-align: center; overflow: hidden; vertical-align: middle; }
+.fh-simple-suggest-text { display: inline-block; font-size: 28px; line-height: 1.15; white-space: nowrap; overflow-wrap: break-word; word-break: break-word; }
+
 .fh-noflaps { color: #7b8a9d; font-size: 22px; line-height: 42px; padding-left: 12px; }
 .fh-flaps-label { position: relative; }
 .fh-badge { display: none; font-size: 14px; font-weight: 700; margin-top: 2px; padding: 1px 6px; border-radius: 4px; width: 90px; text-align: center; letter-spacing: 0; }

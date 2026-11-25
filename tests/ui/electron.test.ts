@@ -245,6 +245,20 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
     }finally{await browser?.close();await app.close();fs.rmSync(ud,{recursive:true,force:true});}
   });
 
+  it('persists Simple display settings and applies them to the actual optional external panel',async()=>{
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-combined-simple-'));let instance=await launch(ud);
+    try{
+      let {app,page}=instance;let panel=await openExternal(app,page);let editor=await openEditor(app,page);
+      await editor.click('.fh-display-options summary');await editor.locator('.fh-show-transitions').locator('..').click();await editor.locator('.fh-simple-flap').locator('..').click();
+      expect(await editor.locator('.fh-show-transitions').isDisabled()).toBe(true);expect(await editor.locator('.fh-show-transitions').isChecked()).toBe(true);
+      await panel.waitForSelector('.fh-simple-row',{state:'visible'});expect(await panel.locator('.fh-ias-row').isVisible()).toBe(false);
+      await editor.click('.fh-settings .fh-back');await app.close();instance=await launch(ud);({app,page}=instance);panel=await openExternal(app,page);await panel.waitForSelector('.fh-simple-row',{state:'visible'});
+      editor=await openEditor(app,page);await editor.click('.fh-display-options summary');expect(await editor.locator('.fh-show-transitions').isDisabled()).toBe(true);await editor.locator('.fh-simple-flap').locator('..').click();
+      expect(await editor.locator('.fh-show-transitions').isEnabled()).toBe(true);expect(await editor.locator('.fh-show-transitions').isChecked()).toBe(true);
+      await panel.waitForSelector('.fh-ias-row',{state:'visible'});
+    }finally{await instance.app.close().catch(()=>{});fs.rmSync(ud,{recursive:true,force:true});}
+  });
+
   it('replay records real source samples and the cockpit panel follows changing flap positions', async () => {
     const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-e2e-'));
     fs.mkdirSync(path.join(ud,'profiles'),{recursive:true});

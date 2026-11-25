@@ -19,6 +19,32 @@ function model(p: Profile | null, s: SimSample | null, f = 0, link = 'live' as '
 }
 
 describe('display model', () => {
+  it('simple guidance recommends by profile order, not flap label or handle index', () => {
+    const p = makeProfile(6);
+    ['L', '6', '5', 'N', '4-3', '1'].forEach((label, i) => { p.flaps[i].label = label; p.flaps[i].handle_index = 5-i; });
+    const at = (iasKt: number) => model(p, sample({ flapIndex: 2, flapCount: 6, iasKt })).simple;
+    expect(at(70)).toEqual({ current: 'N', suggestion: { label: '5', direction: 'slower' } });
+    expect(at(94)).toEqual({ current: 'N', suggestion: { label: '4-3', direction: 'faster' } });
+    expect(at(82)).toEqual({ current: 'N', suggestion: null });
+    expect(at(88).suggestion).toEqual({ label: '4-3', direction: 'faster' });
+    expect(at(20).suggestion).toBeNull();
+    expect(at(200).suggestion).toBeNull();
+  });
+
+  it('simple guidance clears invalid recommendations and uses raw IAS consistently in both views', () => {
+    const p = makeProfile(6);
+    const s = sample({ flapIndex: 3, flapCount: 6, iasKt: 94 });
+    expect(model(p, s, 0, 'live', 65).simple).toEqual(model(p, s, 0, 'live').simple);
+    expect(model(p, sample({ ...s, onGround: true })).simple.suggestion).toBeNull();
+    expect(model(p, sample({ ...s, iasKt: null }), 0, 'live', 94).simple.suggestion).toBeNull();
+    expect(model(p, sample({ ...s, flapIndex: null, flapPercent: null })).simple.suggestion).toBeNull();
+    expect(model(p, s, 0, 'nodata').simple).toEqual({ current: null, suggestion: null });
+    expect(model(p, s, 0, 'paused').simple.suggestion).toBeNull();
+    expect(model(makeProfile(0), s).simple.suggestion).toBeNull();
+    p.transitions[0].no_ballast_kt = null;
+    expect(model(p, s).simple.suggestion).toBeNull();
+  });
+
   it('has N cells, N + 1 ticks, and exactly one current cell for N = 1, 2, 6, 10', () => {
     for (const n of [1, 2, 6, 10]) {
       const p = makeProfile(n);
@@ -286,6 +312,7 @@ describe('ballast state, settings and selection', () => {
     expect(normalizeSettings(null)).toEqual(defaultSettings());
     const s = normalizeSettings({ schema: SETTINGS_SCHEMA, ballast_by_profile: { a: 3, b: 'x' }, ui: { opacity: 0.1, zoom: 9, compact: true }, window: { x: 1, y: 2, width: 3, height: 4 }, active_by_title: { t: 'p', u: 4 } });
     expect(s.ballast_by_profile).toEqual({ a: 1 });
+    expect(s.ui.simple_flap).toBe(false);
     expect(s.ui).toMatchObject({ opacity: 0.3, zoom: 3, compact: true, show_ballast: true, show_agl: true, show_transitions: false, show_wind: true, bar_shading: true });
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, ui: { bar_shading: false } }).ui.bar_shading).toBe(false);
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, ui: { show_ballast: false, show_agl: false } }).ui).toMatchObject({ show_ballast: false, show_agl: false });
@@ -311,5 +338,15 @@ describe('ballast state, settings and selection', () => {
     st.last_profile_id = 'c';
     expect(selectProfileId(metas, st, 'Unknown glider')).toBe('c');
     expect(selectProfileId([], st, 'x')).toBeNull();
+  });
+});
+
+describe('simple display preference', () => {
+  it('defaults off, accepts only true, and preserves the independent transition and ballast choices', () => {
+    expect(defaultSettings().ui.simple_flap).toBe(false);
+    const d = defaultSettings();
+    const saved = normalizeSettings({ ...d, ui: { ...d.ui, simple_flap: true, show_transitions: true, show_ballast: false } });
+    expect(saved.ui).toMatchObject({ simple_flap: true, show_transitions: true, show_ballast: false });
+    expect(normalizeSettings({ ...d, ui: { ...d.ui, simple_flap: 'true' } }).ui.simple_flap).toBe(false);
   });
 });

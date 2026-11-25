@@ -2,7 +2,7 @@ import { wsgBoundaries,wsgGroups } from './wsg-flight';
 import type { Profile, ValidationResult } from './types';
 import type { SimSample } from './sim';
 import type { CurrentFlap } from './flapmap';
-import { columnEdges, effectiveBoundaries, mapMarker, type MarkerRegion } from './scale';
+import { bucketIndex, columnEdges, effectiveBoundaries, mapMarker, type MarkerRegion } from './scale';
 import { interpolationFraction, liveWeight, type WeightState } from './weight';
 import { aglMarkLabels, aglMarkPositions, defaultAglScale, formatAgl, formatIas, formatTick, type AglScale, type HeightUnit, type SpeedUnit } from './units';
 
@@ -59,6 +59,8 @@ export interface DisplayModel {
   incompleteMessage: string | null;
   /** Row of the highlighted cell, or null. */
   currentRow: number | null;
+  /** Simple guidance uses the same ordered profile buckets as the IAS marker. */
+  simple: { current: string | null; suggestion: { label: string; direction: 'slower' | 'faster' } | null };
 }
 
 export interface ModelInput {
@@ -117,6 +119,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     badge: null,
     incompleteMessage: null,
     currentRow: null,
+    simple: { current: null, suggestion: null },
   };
   if (!profile || !validation) {
     base.incompleteMessage = 'no profile: open settings';
@@ -174,12 +177,28 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     else if (flap.via === 'manual') base.badge = { kind: 'manual', text: 'manual' };
   }
 
+  const mappedRow = live && validation.structureOk && flap.status === 'row' &&
+    flap.rowIndex !== null && flap.rowIndex >= 0 && flap.rowIndex < n ? flap.rowIndex : null;
+  if (mappedRow !== null) base.simple.current = profile.flaps[mappedRow].label;
+  else if (live && flap.status === 'unlisted') base.simple.current = flap.label;
+
   if (boundaries) {
     base.barVisible = true;
     base.boundaries = boundaries;
     base.edges = columnEdges(boundaries);
     base.cellEdges = base.edges;
     base.ticks = boundaries.map((b) => formatTick(b, units));
+    // Recommendations use the same received IAS in desktop and cockpit; smoothing is visual only.
+    const recommendationIas = sample ? sample.iasKt : null;
+    if (mappedRow !== null && sample && sample.onGround !== true &&
+        recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= GROUND_SPEED_KT) {
+      let row = bucketIndex(recommendationIas, boundaries);
+      if(profile.wsg&&profile.vne===null&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
+      const currentGroup=profile.wsg?base.currentRow:mappedRow;
+      if (currentGroup!==null && row >= 0 && row < base.cells.length && row !== currentGroup) {
+        base.simple.suggestion = { label: base.cells[row].label, direction: row < currentGroup ? 'slower' : 'faster' };
+      }
+    }
     if (hasIas) {
       const ias = rawIas as number;
       const grey = (sample && sample.onGround === true) || ias < GROUND_SPEED_KT;

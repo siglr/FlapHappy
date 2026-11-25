@@ -3,6 +3,7 @@ import type { Profile } from '../core/types';
 import { nativeWidth } from '../core/scale';
 import { aglMarkPositions } from '../core/units';
 import { clear, h, setText, toggleClass } from './dom';
+import { SimpleFlapView } from './simple-flap';
 
 export interface StripOptions {
   /** Content area for the weight indicator (shown under the tick row). */
@@ -19,6 +20,9 @@ export class StripView {
   readonly el: HTMLElement;
   private fit: HTMLElement;
   private panel: HTMLElement;
+  private readonly simple = new SimpleFlapView();
+  private iasRow!: HTMLElement;
+  private flapsRow!: HTMLElement;
   private track!: HTMLElement;
   private cols!: HTMLElement;
   private fill!: HTMLElement;
@@ -70,7 +74,7 @@ export class StripView {
     this.track.appendChild(this.barMsg);
     this.readout = h('div', { class: 'fh-readout' }, '--- kt');
     this.track.appendChild(h('div', { class: 'fh-barread' }, this.readout));
-    const iasRow = h('div', { class: 'fh-row fh-ias-row' }, h('div', { class: 'fh-label' }, 'IAS'), this.track);
+    this.iasRow = h('div', { class: 'fh-row fh-ias-row' }, h('div', { class: 'fh-label' }, 'IAS'), this.track);
 
     this.aglTrack = h('div', { class: 'fh-agltrack' });
     this.aglFill = h('div', { class: 'fh-aglfill' });
@@ -94,14 +98,15 @@ export class StripView {
     this.cellsWrap = h('div', { class: 'fh-cells' });
     this.badge = h('div', { class: 'fh-badge' });
     this.flapsLabel = h('div', { class: 'fh-label fh-flaps-label' }, 'FLAPS', this.badge);
-    const flapsRow = h('div', { class: 'fh-row fh-flaps-row' }, this.flapsLabel, this.cellsWrap);
+    this.flapsRow = h('div', { class: 'fh-row fh-flaps-row' }, this.flapsLabel, this.cellsWrap);
 
     this.tickLabels = h('div', { class: 'fh-ticklabels' });
     this.tickRow = h('div', { class: 'fh-row fh-tick-row' }, h('div', { class: 'fh-label' }), this.tickLabels);
 
     clear(this.panel);
-    this.panel.appendChild(iasRow);
-    this.panel.appendChild(flapsRow);
+    this.panel.appendChild(this.iasRow);
+    this.panel.appendChild(this.flapsRow);
+    this.panel.appendChild(this.simple.el);
     this.panel.appendChild(this.tickRow);
     if (this.opts.weightRow) this.panel.appendChild(this.opts.weightRow);
     this.panel.appendChild(this.aglRow);
@@ -155,9 +160,18 @@ export class StripView {
     this.panel.style.width = this.native + 'px';
   }
 
-  render(model: DisplayModel, extra: { profile: Profile | null; zoom?: number; showBallast?: boolean; showAgl?: boolean; showTransitions?: boolean; showWind?: boolean; barShading?: boolean }): void {
+  render(model: DisplayModel, extra: { profile: Profile | null; zoom?: number; showBallast?: boolean; showAgl?: boolean; simpleFlap?: boolean; showTransitions?: boolean; showWind?: boolean; barShading?: boolean }): void {
     this.ensureStructure(model);
     const n = model.cells.length;
+    const simpleMode = extra.simpleFlap === true;
+    const desiredWidth = simpleMode ? nativeWidth(0) : nativeWidth(n);
+    if (this.native !== desiredWidth) {
+      this.native = desiredWidth;
+      this.panel.style.width = this.native + 'px';
+    }
+    this.iasRow.style.display = simpleMode ? 'none' : '';
+    this.flapsRow.style.display = simpleMode ? 'none' : '';
+    this.simple.render(model, simpleMode && model.mode !== 'noflaps');
     const edges = model.edges;
     const cols = Math.max(n, 1);
 
@@ -246,7 +260,7 @@ export class StripView {
     toggleClass(this.cellsWrap, 'grey', model.mode === 'noflaps');
     if (this.opts.weightRow) this.opts.weightRow.style.display = extra.showBallast === false ? 'none' : '';
     this.aglRow.style.display = extra.showAgl === false ? 'none' : '';
-    this.tickRow.style.display = extra.showTransitions === true ? '' : 'none';
+    this.tickRow.style.display = !simpleMode && extra.showTransitions === true ? '' : 'none';
     this.rescale(extra.zoom);
   }
 
@@ -254,6 +268,7 @@ export class StripView {
 
   rescale(zoom?: number): void {
     if (zoom !== undefined) this.zoom = zoom;
+    this.simple.fit();
     const avail = this.fit.clientWidth || this.native;
     const s = (avail / this.native) * this.zoom;
     this.panel.style.transform = 'scale(' + s + ')';

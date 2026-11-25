@@ -21,7 +21,7 @@ describe('WSG flight display',()=>{
  it('keeps exact native handles and merged groups with no Vs or IAS maximum; visual edge never generates FAST/LOW',()=>{
   const p=wsgFlightProfile(match,{})!;expect(p.vne).toBeNull();expect(p.vs_min.no_ballast_kt).toBeNull();expect(p.flaps).toHaveLength(8);
   expect(wsgGroups(p).labels).toEqual(['L–6–5','N','4','3','2','1']);
-  const m=model(p,200,485,6);expect(m.barVisible).toBe(true);expect(m.boundaries).toEqual([0,...light.slice(3),282/1.852]);expect(m.marker.pos).toBe(1);expect(m.alert).toBeNull();expect(m.cells[0].state).toBe('current');expect(m.badge).toEqual({kind:'mapped',text:'6'});
+  const m=model(p,200,485,6);expect(m.barVisible).toBe(true);expect(m.boundaries).toEqual([0,...light.slice(3),282/1.852]);expect(m.marker.pos).toBe(1);expect(m.alert).toBeNull();expect(m.cells[0].state).toBe('current');expect(m.badge).toEqual({kind:'mapped',text:'6'});expect(m.simple).toEqual({current:'6',suggestion:{label:'1',direction:'faster'}});expect(model(p,45,485,6).simple).toEqual({current:'6',suggestion:null});
   const low=model(p,30,600,7);expect(low.alert).toBeNull();expect(low.boundaries?.slice(1,-1)).toEqual(heavy.slice(3));
   expect(model(p,70,542.5,2).boundaries?.[1]).toBeCloseTo((light[3]+heavy[3])/2);
   expect(model(p,70,300,2).boundaries).toEqual(wsgBoundaries(p,0));expect(model(p,70,800,2).boundaries).toEqual(wsgBoundaries(p,1));
