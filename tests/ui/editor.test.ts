@@ -219,8 +219,8 @@ describe('profile library: presets, import and export', () => {
     await page.waitForSelector('.fh-profile-select');
     expect(await page.locator('.fh-profile-select').inputValue()).toBe('as33-18m');
     expect(await page.locator('.fh-profile-select option').count()).toBe(5);
-    expect(await page.$eval('.fh-dev-count', (e) => (e as HTMLInputElement).value)).toBe('6');
-    expect(await page.$eval('.fh-settings .fh-liveline', (e) => e.textContent)).toContain('of 6');
+    expect(await page.$eval('.fh-dev-count', (e) => (e as HTMLInputElement).value)).toBe('8');
+    expect(await page.$eval('.fh-settings .fh-liveline', (e) => e.textContent)).toContain('of 8');
     await page.selectOption('.fh-profile-select', 'as33-15m');
     await page.waitForFunction(() => (window as any).__flapHappy.profileId() === 'as33-15m');
     expect(await page.locator('.fh-profile-select').inputValue()).toBe('as33-15m');
