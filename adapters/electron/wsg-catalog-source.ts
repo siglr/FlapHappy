@@ -1,7 +1,7 @@
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import { resolveWsgAlias, verifyWsgReference, type WsgAircraftMatch } from '../../core/wsg-reference';
+import { exactWsgVariant, resolveWsgAlias, verifyWsgReference, type WsgAircraftMatch } from '../../core/wsg-reference';
 import { parseWsgCatalog, type WsgCatalog } from '../../core/wsg-catalog';
 
 export const WSG_PUBLIC_CATALOG = 'https://wesimglide.org/api/flap-happy/catalog-v2.json';
@@ -89,17 +89,37 @@ export class CachedWsgSource{
   const catalog=await this.catalog();
   const profile=catalog.profiles.find(p=>p.variantKey===key);
   if(!profile)return null;
-  // Canonical catalog already defines the exact mapping; without a confirmed
-  // public reference the IAS geometry can use the open-ended visual fallback.
-  try{return await this.reference(key,profile);}catch(e){if(e instanceof Error&&e.message==='WSG reference failed exact mapping validation')return null;return {variantKey:key,displayName:key,profile,visualVneTasKph:null};}
+  // Some canonical identifiers resolve to another add-on via the public
+  // reference API. Try only an exact, unambiguous published alias for this key.
+  try{return await this.reference(key,profile);}catch(error){
+    try{
+      const rules=await this.rules() as {rules:Array<{RuleType:string;Pattern:string;GliderKey:string}>};
+      const candidates=rules.rules.filter(r=>r.GliderKey===key&&(r.RuleType==='EXACT'||r.RuleType==='REGEX'&&/^\^[a-zA-Z0-9_-]+\$?$/.test(r.Pattern)))
+        .map(r=>r.RuleType==='REGEX'?r.Pattern.slice(1).replace(/\$$/,''):r.Pattern)
+        .filter(alias=>exactWsgVariant(alias,rules)===key);
+      // A literal alias ending in a declared span is especially useful.
+      candidates.sort((a,b)=>Number(/[_-]\d+m$/i.test(b))-Number(/[_-]\d+m$/i.test(a)));
+      if(candidates.length){
+        const alias=candidates[0],span=Number(/[_-](\d+)m$/i.exec(alias)?.[1]);
+        return await this.reference(key,profile,alias,isFinite(span)&&span>0?span:undefined);
+      }
+    }catch(aliasError){
+      if(aliasError instanceof Error&&aliasError.message==='WSG reference failed exact mapping validation')return null;
+    }
+    if(error instanceof Error&&error.message==='WSG reference failed exact mapping validation')return null;
+    // An unavailable reference cannot fabricate TAS or IAS limits. The exact
+    // cached catalog still supports the manually chosen, fully mapped profile.
+    return {variantKey:key,displayName:key,profile,visualVneTasKph:null};
+  }
  };
+ private rules=()=>this.get('https://wesimglide.org/api/GetGliderRules.php',raw=>{
+  const r=raw as {ok?:boolean;rules?:unknown[];gliders?:unknown[]};
+  if(!r||r.ok!==true||!Array.isArray(r.rules)||!Array.isArray(r.gliders))throw Error('Invalid WSG public rules');
+  return raw;
+ });
  aircraft=async(container:string|null,span:number|null):Promise<WsgAircraftMatch|null>=>{
   if(typeof container!=='string'||!/^[a-zA-Z0-9_-]{1,150}$/.test(container)||typeof span!=='number'||!isFinite(span)||span<5||span>40)return null;
-  const rules=await this.get('https://wesimglide.org/api/GetGliderRules.php',raw=>{
-   const r=raw as {ok?:boolean;rules?:unknown[];gliders?:unknown[]};
-   if(!r||r.ok!==true||!Array.isArray(r.rules)||!Array.isArray(r.gliders))throw Error('Invalid WSG public rules');
-   return raw;
-  });
+  const rules=await this.rules();
   const exact=resolveWsgAlias(container,span,rules);if(!exact)return null;
   const catalog=await this.catalog();
   const profile=catalog.profiles.find(p=>p.variantKey.toLowerCase()===exact.key.toLowerCase())??null;
