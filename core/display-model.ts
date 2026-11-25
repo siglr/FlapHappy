@@ -2,7 +2,7 @@ import { wsgBoundaries,wsgGroups } from './wsg-flight';
 import type { Profile, ValidationResult } from './types';
 import type { SimSample } from './sim';
 import type { CurrentFlap } from './flapmap';
-import { bucketIndex, columnEdges, effectiveBoundaries, mapMarker, type MarkerRegion } from './scale';
+import { bucketIndex, columnEdges, effectiveBoundaries, flapGroups, mapMarker, type MarkerRegion } from './scale';
 import { interpolationFraction, liveWeight, type WeightState } from './weight';
 import { aglMarkLabels, aglMarkPositions, defaultAglScale, formatAgl, formatIas, formatTick, type AglScale, type HeightUnit, type SpeedUnit } from './units';
 
@@ -49,7 +49,7 @@ export interface DisplayModel {
   aglInBand: boolean;
   /** Tick labels at Low, the middle of that band, and High, in the current height unit. */
   aglMarks: string[];
-  /** Same ticks as fractions of the bar. Null hides a tick that falls outside Bottom–Top. */
+  /** Same ticks as fractions of the bar. Null hides a tick that falls outside Bottomâ€“Top. */
   aglMarkPos: Array<number | null>;
   /** Ambient wind speed, shown on the left of the height bar. */
   windText: string;
@@ -150,16 +150,17 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
   if (base.mode === 'incomplete') base.incompleteMessage = 'profile incomplete: open settings';
   else if (fraction===null && weight.anchorsValid && weight.kg === null) base.incompleteMessage = 'Flying weight unavailable';
 
-  // Flap cells: one per row.
+  // Exclusion merges neighboring cells but never changes the native handle.
+  const groups=flapGroups(profile);
   if (n > 0 && validation.structureOk) {
     const current = live || link === 'paused' || link === 'nodata' ? flap.rowIndex : null;
-    base.currentRow = link === 'waiting' ? null : current;
-    base.cells = profile.flaps.map((row, i) => ({
-      label: row.label,
-      state: base.currentRow === i ? 'current' : 'other',
-    }));
+    const group=current===null?-1:groups.members.findIndex(m=>m.includes(current));
+    base.currentRow=group<0?null:group;
+    base.cells=groups.labels.map((label,i)=>({label,state:base.currentRow===i?'current':'other'}));
+    if(base.currentRow!==null&&groups.members[base.currentRow].length>1&&flap.label)
+      base.badge={kind:'mapped',text:flap.label};
   } else if (n > 0) {
-    base.cells = profile.flaps.map((row) => ({ label: row.label, state: 'other' as const }));
+    base.cells=groups.labels.map(label=>({label,state:'other'}));
   }
 
   if(profile.wsg&&n>0&&validation.structureOk){
@@ -194,7 +195,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
         recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= GROUND_SPEED_KT) {
       let row = bucketIndex(recommendationIas, boundaries);
       if(profile.wsg&&profile.vne===null&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
-      const currentGroup=profile.wsg?base.currentRow:mappedRow;
+      const currentGroup=base.currentRow;
       if (currentGroup!==null && row >= 0 && row < base.cells.length && row !== currentGroup) {
         base.simple.suggestion = { label: base.cells[row].label, direction: row < currentGroup ? 'slower' : 'faster' };
       }

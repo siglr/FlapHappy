@@ -424,13 +424,17 @@ export class SettingsView {
     ref.appendChild(speedRow('Stall IAS (' + unitLabel(unit) + ')', 'fh-minrow', null, () => d.vs_min, 'vs_min', true));
     ref.appendChild(h('div', { class: 'fh-hint' }, this.weightMode === 'live' ? 'Both loaded weights are required; Light must be below Heavy.' : 'No flying weights are required. Set the manual ballast slider in flight.'));
     this.table.appendChild(ref);
-    const transitions = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Flap transitions — IAS (' + unitLabel(unit) + ')'), columns('From → To', left, right));
+    const transitions = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Flap transitions â€” IAS (' + unitLabel(unit) + ')'), columns('From â†’ To', left, right));
     for (let i = 0; i < n - 1; i++) {
       const nameEl = h('div', { class: 'fh-profile-title fh-transname' }, this.transitionLabel(d, i));
       this.transNames.push(nameEl);
       const trow = speedRow(this.transitionLabel(d, i), 'fh-transition-row fh-trow', nameEl, () => d.transitions[i], `transitions[${i}]`, false);
       if (this.prefilled.indexOf(i) >= 0) trow.classList.add('prefilled');
+      const excluded=h('input',{type:'checkbox',checked:d.transitions[i].exclude_from_display===true,'aria-label':'Exclude '+transitionName(d,i)+' from display',onchange:(e:Event)=>{
+        d.transitions[i].exclude_from_display=(e.target as HTMLInputElement).checked;this.edited(false);
+      }});
       transitions.appendChild(trow);
+      transitions.appendChild(h('label',{class:'fh-check fh-exclude-transition'},excluded,' Merge adjoining flap bands (exclude divider)'));
     }
     if (n < 2) transitions.appendChild(h('div', { class: 'fh-hint' }, 'At least two flap positions are needed for a transition. Edit the flap mapping below.'));
     if (n > 0) transitions.appendChild(h('div', { class: 'fh-profile-grid fh-vne-row' }, h('div', { class: 'fh-profile-title' }, 'Max (Vne) (' + unitLabel(unit) + ')'),
@@ -450,8 +454,8 @@ export class SettingsView {
         frow.setAttribute('data-handle', row.handle_index === null ? '' : String(row.handle_index));
       } });
       indexIn.setAttribute('min', '0');
-      const frow = h('div', { class: 'fh-erow fh-frow', 'data-handle': row.handle_index === null ? '' : String(row.handle_index), title: 'Drag to reorder' }, h('span', { class: 'fh-grip', 'aria-hidden': 'true' }, '☰'), h('label', { class: 'fh-sub' }, 'Label'), labelIn, h('label', { class: 'fh-sub' }, 'Sim index'), indexIn,
-        h('span', { class: 'fh-rowbtns' }, h('button', { class: 'fh-btn fh-remove', type: 'button', title: 'Remove this flap row', 'aria-label': 'Remove row', onclick: () => this.mutate(deleteRow(d, i), 'Deleted row "' + row.label + '"') }, '×')));
+      const frow = h('div', { class: 'fh-erow fh-frow', 'data-handle': row.handle_index === null ? '' : String(row.handle_index), title: 'Drag to reorder' }, h('span', { class: 'fh-grip', 'aria-hidden': 'true' }, 'â˜°'), h('label', { class: 'fh-sub' }, 'Label'), labelIn, h('label', { class: 'fh-sub' }, 'Sim index'), indexIn,
+        h('span', { class: 'fh-rowbtns' }, h('button', { class: 'fh-btn fh-remove', type: 'button', title: 'Remove this flap row', 'aria-label': 'Remove row', onclick: () => this.mutate(deleteRow(d, i), 'Deleted row "' + row.label + '"') }, 'Ã—')));
       this.armRowDrag(frow, i);
       this.rowEls.push(frow);
       mapping.appendChild(frow);
@@ -467,15 +471,15 @@ export class SettingsView {
     const cell = (v: string) => h('div', { class: 'fh-profile-value' }, v);
     const row = (name: string, l: string, r: string) => h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, name), cell(l), cell(r));
     this.table.appendChild(h('div', { class: 'fh-profile-card fh-wsg-preview' },
-      h('div', { class: 'fh-subtitle' }, p.variantKey + ' — published WSG.org profile'),
+      h('div', { class: 'fh-subtitle' }, p.variantKey + ' â€” published WSG.org profile'),
       h('div', { class: 'fh-hint' }, 'Published baseline. Personal adjustments below are local; WSG profiles default to live weight.'),
       row('', 'Light', 'Heavy'), row('Flying weight (kg)', String(p.lightWeightKg), String(p.heavyWeightKg)),
       row('Stall IAS (' + unitLabel(unit) + ')', speed(p.lightStallIasKph === null ? null : p.lightStallIasKph / 1.852), speed(p.heavyStallIasKph === null ? null : p.heavyStallIasKph / 1.852)),
       h('div', { class: 'fh-hint' }, 'An IAS upper limit is not published. Without a personal IAS limit, the upper ribbon edge is visual only.')));
-    const transitions = h('div', { class: 'fh-profile-card fh-wsg-transitions' }, h('div', { class: 'fh-subtitle' }, 'Published transition IAS (' + unitLabel(unit) + ')'), row('From → To', 'Light', 'Heavy'));
+    const transitions = h('div', { class: 'fh-profile-card fh-wsg-transitions' }, h('div', { class: 'fh-subtitle' }, 'Published transition IAS (' + unitLabel(unit) + ')'), row('From â†’ To', 'Light', 'Heavy'));
     for (let i = 1; i < p.bands.length; i++) {
       const b = p.bands[i], from = p.bands[i - 1];
-      transitions.appendChild(row(from.label + ' → ' + b.label + (b.excludeFromDisplay ? ' (Hide)' : ' (Show)'), speed(b.lightStartKt), speed(b.heavyStartKt)));
+      transitions.appendChild(row(from.label + ' â†’ ' + b.label + (b.excludeFromDisplay ? ' (Hide)' : ' (Show)'), speed(b.lightStartKt), speed(b.heavyStartKt)));
     }
     transitions.appendChild(h('div', { class: 'fh-hint' }, 'Hidden transitions merge adjacent flap positions. The underlying native mapping is unchanged.'));
     this.table.appendChild(transitions);
@@ -509,7 +513,7 @@ export class SettingsView {
       const light=number('transition '+i+' Light',b.lightStartKt*1.852,t?.lightStartKt===undefined?undefined:t.lightStartKt*1.852),heavy=number('transition '+i+' Heavy',b.heavyStartKt*1.852,t?.heavyStartKt===undefined?undefined:t.heavyStartKt*1.852);
       const visibility=h('select',{class:'fh-in','aria-label':'Transition '+i+' visibility'},h('option',{value:'inherit'},'WSG default ('+(b.excludeFromDisplay?'Hide':'Show')+')'),h('option',{value:'show'},'Show'),h('option',{value:'hide'},'Hide')) as HTMLSelectElement;
       visibility.value=t?.excludeFromDisplay===undefined?'inherit':t.excludeFromDisplay?'hide':'show';
-      box.appendChild(row(p.bands[i].label+' → '+b.label,light,heavy));box.appendChild(row('In-flight display',visibility));
+      box.appendChild(row(p.bands[i].label+' â†’ '+b.label,light,heavy));box.appendChild(row('In-flight display',visibility));
       return {id,light,heavy,visibility};
     });
     const save=h('button',{type:'button',class:'fh-btn fh-wsg-save-adjustments',disabled:current.state!=='ok',onclick:async()=>{
@@ -538,7 +542,7 @@ export class SettingsView {
   }
 
   private transitionLabel(p: Profile, i: number): string {
-    return transitionName(p, i).replace(' -> ', ' → ');
+    return transitionName(p, i).replace(' -> ', ' â†’ ');
   }
 
   private selectWeightMode(mode: WeightMode): void {
@@ -779,8 +783,8 @@ export class SettingsView {
       enabled.checked=status?.installed??false;enabled.disabled=busy||!status||!(status.installed?status.canRemove:status.action==='Install');
       update.hidden=status?.action!=='Update'||!status.installed;update.disabled=busy;
       location.hidden=choice().kind!=='community';setText(location,status?.community?'Community: '+status.community:'Community not detected');
-      setText(version,status?.installedVersion?'Installed version: '+status.installedVersion:'Installed version: —');
-      setText(note,message??status?.message??'Checking installation…');
+      setText(version,status?.installedVersion?'Installed version: '+status.installedVersion:'Installed version: â€”');
+      setText(note,message??status?.message??'Checking installationâ€¦');
     }
     function apply(next:PanelInstallStatus){
       status=next;
