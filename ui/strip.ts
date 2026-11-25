@@ -264,6 +264,44 @@ export class StripView {
     this.rescale(extra.zoom);
   }
 
+  /** Measure the real text widths at the current zoom. Keep trigger positions
+   * anchored to their dividers, switching to two alternating lanes only if
+   * the one-lane arrangement would intersect. */
+  private layoutTriggerLabels(scale:number): void {
+    if(this.tickRow.style.display==='none'||!this.tickTexts.length)return;
+    const width=this.tickLabels.clientWidth;
+    if(!width)return;
+    const labels=this.tickTexts.filter(t=>!t.classList.contains('hidden'));
+    if(!labels.length)return;
+    let font=Math.min(32,Math.max(20,Math.ceil(11/Math.max(scale,.1))));
+    const gap=Math.max(2,Math.ceil(3/Math.max(scale,.1)));
+    const place=(lanes:number, size:number, omit=false)=>{
+      let ends=[-Infinity,-Infinity], fit=true;
+      labels.forEach((label,i)=>{
+        label.style.fontSize=size+'px';label.style.visibility='visible';
+        const lane=i%lanes, x=parseFloat(label.style.left)/100*width;
+        const textWidth=label.offsetWidth;
+        const start=label.classList.contains('last')?x-textWidth:x-textWidth/2;
+        if(start<ends[lane]+gap){fit=false;if(omit){label.style.visibility='hidden';return;}}
+        ends[lane]=Math.max(ends[lane],start+textWidth);
+        label.style.top=(lane*Math.ceil(size*1.25))+'px';
+      });
+      return fit;
+    };
+    let lanes=place(1,font)?1:2;
+    if(lanes===2){
+      while(!place(2,font)&&font>10)font--;
+      place(2,font,true);
+    }
+    this.tickLabels.style.height=Math.ceil(font*1.3*lanes)+'px';
+    this.tickLabels.setAttribute('data-lanes',String(lanes));
+    // Extremely dense profiles may not fit every number even at two lanes.
+    // All exact labels remain available on their divider and to assistive tech.
+    const hidden=labels.filter(t=>t.style.visibility==='hidden').map(t=>t.textContent??'');
+    this.tickLabels.title=hidden.length?'Additional trigger values: '+hidden.join(', '):'';
+    labels.forEach((t,i)=>{this.tickLines[i].title=t.textContent??'';});
+  }
+
   private zoom = 1;
 
   rescale(zoom?: number): void {
@@ -272,6 +310,7 @@ export class StripView {
     const avail = this.fit.clientWidth || this.native;
     const s = (avail / this.native) * this.zoom;
     this.panel.style.transform = 'scale(' + s + ')';
+    this.layoutTriggerLabels(s);
     this.fit.style.height = Math.ceil(this.panel.offsetHeight * s) + 'px';
   }
 }

@@ -145,3 +145,6 @@ Enable installs the verified bundled panel, disabling removes a verified physica
 
 ### Merged flap bands
 In Settings, check **Merge adjoining flap bands (exclude divider)** for a transition to omit that speed divider and merge its two adjacent flap labels. Consecutive exclusions form a single band. The actual simulator handle and its exact label are preserved. The optional exclusion is saved with each transition; legacy profiles remain unchanged, and excluded transition speeds are not needed until the divider is shown again.
+
+### Responsive speed-trigger labels
+When **Flap transitions** is enabled, the whole-number speed labels occupy a single row where their measured text widths fit. Crowded labels alternate between two rows while remaining aligned with the real dividers. Extremely dense values remain available on the dividers rather than overlapping neighboring text. The IAS calculations and units are unchanged.
