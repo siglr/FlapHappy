@@ -64,6 +64,36 @@ async function clickBallast(panel: Page, fraction: number) {
 }
 
 describe.skipIf(!canRun)('visible control window and optional external panel', () => {
+  it('shows desktop session status and lets keyboard tab navigation retain unsaved profile edits',async()=>{
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-desktop-settings-'));
+    const {app,page}=await launch(ud);
+    try{
+      await page.waitForSelector('.fh-main-connection');
+      expect(await page.locator('.fh-main-connection').textContent()).toBe('Demo (simulated)');
+      await page.waitForFunction(()=>document.querySelector('.fh-main-aircraft')?.textContent==='Simulated glider');
+      await page.selectOption('.fh-profile-mode','manual');
+      await page.selectOption('.fh-profile-choice','demo-as33-18m');
+      await waitUntil(async()=> (await getFeed()).profile?.id==='demo-as33-18m');
+      expect(await page.locator('.fh-main-active-profile').textContent()).toBe('demo-as33-18m');
+      expect(await page.locator('.fh-main-external-state').textContent()).toBe('Closed');
+      const created=app.waitForEvent('window');await page.click('.fh-main-settings');const editor=await created;
+      await editor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');
+      const display=editor.getByRole('tab',{name:'Display'});await display.focus();await editor.keyboard.press('ArrowRight');
+      await editor.waitForSelector('.fh-settings-tab-panel[aria-selected="true"]');
+      await editor.keyboard.press('ArrowRight');await editor.waitForSelector('.fh-settings-tab-profiles[aria-selected="true"]');
+      const field=editor.locator('[data-path="vs_min.no_ballast_kt"]');await field.waitFor();const original=await field.inputValue();
+      await field.fill('33');
+      await editor.getByRole('tab',{name:'Display'}).click();expect(await editor.locator('.fh-save').isVisible()).toBe(false);
+      await editor.getByRole('tab',{name:'Profiles'}).click();expect(await field.inputValue()).toBe('33');expect(await editor.locator('.fh-save').isEnabled()).toBe(true);
+      await editor.locator('.fh-discard-edits').click();expect(await field.inputValue()).toBe(original);
+      expect(fs.readdirSync(path.join(ud,'profiles'))).toEqual([]);
+      await editor.locator('.fh-back').click();
+      const panel=await openExternal(app,page);expect(await panel.locator('.fh-fit').isVisible()).toBe(true);
+      expect(await page.locator('.fh-main-external-state').textContent()).toBe('Open');
+      await closeExternal(app,page);expect(await page.locator('.fh-main-external-state').textContent()).toBe('Closed');
+    }finally{await app.close();}
+  });
+
   it('starts visibly with no ribbon, opens/closes/reopens the common panel and keeps feeding while minimized', async () => {
     const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-main-window-'));
     const fixture = makeProfile(2, { id: 'panel-fixture' });
