@@ -37,7 +37,7 @@ export function exactWsgVariant(alias: string, response: unknown): string | null
   return r.gliders.some(g => g && typeof g.GliderKey === 'string' && g.GliderKey.toLowerCase() === key.toLowerCase()) ? key : null;
 }
 
-export interface WsgAircraftMatch { variantKey: string; displayName: string; profile: WsgPublishedProfile | null; }
+export interface WsgAircraftMatch { variantKey: string; displayName: string; profile: WsgPublishedProfile | null; visualVneTasKph?: number|null; }
 export function verifyWsgReference(key: string, response: unknown, profile: WsgPublishedProfile | null): WsgAircraftMatch | null {
   const r = response as {ok?: unknown; schemaVersion?: unknown; status?: unknown; glider?: any};
   if (!r || r.ok !== true || r.schemaVersion !== 1 || r.status !== 'matched' || typeof r.glider?.gliderKey !== 'string' || r.glider.gliderKey.toLowerCase() !== key.toLowerCase()) return null;
@@ -45,5 +45,5 @@ export function verifyWsgReference(key: string, response: unknown, profile: WsgP
     if (r.glider.hasFlaps !== true || r.glider.flapCount !== profile.bands.length || !r.glider.flapLabels) return null;
     for (const b of profile.bands) if (String(r.glider.flapLabels[String(b.handleIndex+1)] ?? '') !== b.label) return null;
   }
-  return {variantKey:key,displayName:typeof r.glider.displayName === 'string' ? r.glider.displayName : key,profile};
+  return {variantKey:key,displayName:typeof r.glider.displayName === 'string' ? r.glider.displayName : key,profile,visualVneTasKph:typeof r.glider.vneTasKph==='number'&&isFinite(r.glider.vneTasKph)&&r.glider.vneTasKph>0?r.glider.vneTasKph:null};
 }

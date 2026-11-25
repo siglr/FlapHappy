@@ -52,6 +52,8 @@ export interface Profile {
   bank_scaling: 'off';
   source: 'user' | 'preset';
   notes: string;
+  /** Ephemeral public-profile metadata. Never persisted as a standalone profile file. */
+  wsg?: { variantKey:string; hiddenTransitions:boolean[]; visualMaxKt:number|null; ballastMode:'manual'|'live' };
 }
 
 export type IssueLevel = 'error' | 'warning';

@@ -1,3 +1,4 @@
+import { validateWsgFlight } from './wsg-flight';
 import type { FlapPosition, Issue, IssueCategory, Profile, ValidationResult } from './types';
 
 export interface ValidateOptions {
@@ -47,6 +48,7 @@ export function boundaryVectors(p: Profile): Boundaries {
 }
 
 export function validateProfile(p: Profile, opts: ValidateOptions = {}): ValidationResult {
+  if(p.wsg)return validateWsgFlight(p,opts.liveHandleCount);
   const issues: Issue[] = [];
   const add = (
     level: 'error' | 'warning',

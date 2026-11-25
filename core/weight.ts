@@ -20,7 +20,7 @@ export function validWeightAnchors(p: Profile | null): boolean {
 /** A missing anchor opts into legacy manual behavior. A malformed complete pair
  * is a validation error, not a reason to silently switch control modes. */
 export function usesManualBallast(p: Profile | null): boolean {
-  return !!p && (p.weight_kg?.light == null || p.weight_kg?.heavy == null);
+  return !!p && (p.wsg?.ballastMode==='manual' || p.weight_kg?.light == null || p.weight_kg?.heavy == null);
 }
 
 /** Infer the stored mode from anchors, including old files without this object. */
@@ -57,7 +57,7 @@ export function liveWeight(p: Profile | null, sample: SimSample | null, live: bo
  * Anchored profiles never use ballast as a substitute for missing live telemetry. */
 export function interpolationFraction(p: Profile | null, state: WeightState, manual?: number): number | null {
   if (!p) return null;
-  if (state.anchorsValid) return state.fraction;
+  if (state.anchorsValid && !usesManualBallast(p)) return state.fraction;
   if (!usesManualBallast(p)) return null;
   return clamp01(typeof manual === 'number' && isFinite(manual) ? manual : p.ballast.default_fraction);
 }

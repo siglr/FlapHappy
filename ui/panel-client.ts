@@ -67,7 +67,7 @@ function paint(state: CockpitState): void {
   if (manualMode !== nextManual || changedProfile) holdUntil = 0;
   manualMode = nextManual;
   const f = manualMode && now < holdUntil ? shownBallast : state.ballast;
-  const validation = validateProfile(profile);
+  const validation = validateProfile(profile,{liveHandleCount:state.sample?.flapCount});
   const model = buildDisplayModel({
     profile,
     validation,

@@ -343,6 +343,54 @@ describe.skipIf(!canRun)('Electron shell (simulated source): window, files, rest
     } finally { await browser?.close(); await app.close(); fs.rmSync(ud,{recursive:true,force:true}); }
   });
 
+  it('activates an exact WSG catalog profile, merges hidden transitions, applies local manual mode and reset in both displays', async()=>{
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-wsg-flight-'));
+    const {app,page}=await launch(ud);
+    let browser:import('playwright-core').Browser|undefined;
+    try{
+      const {chromium}=await import('playwright-core');
+      const executablePath=[process.env.CHROME_PATH,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','/usr/bin/chromium','/usr/bin/google-chrome'].find(p=>p&&fs.existsSync(p));
+      browser=await chromium.launch({executablePath,args:['--no-sandbox']});
+      const panel=await browser.newPage();await panel.goto('http://127.0.0.1:47321/panel.html');
+      // Exact public alias/variant, representative revision 16 catalog thresholds; no live MSFS.
+      await page.evaluate(()=>{
+        const w=(window as any).__flapHappy;w.sim.stop();const a=w.app;a.usingSim=false;a.info.source='simconnect';a.settings.wsg_profiles_enabled=true;
+        const labels=['L','6','5','N','4','3','2','1'],light=[0,41.579,46.438,51.298,59.404,69.648,84.227,96.648],heavy=[0,46.438,52.367,57.771,68.035,78.842,93.946,106.367];
+        const profile={variantKey:'AS33-18-GF',lightWeightKg:485,heavyWeightKg:600,lightStallIasKph:null,heavyStallIasKph:null,bands:labels.map((label,i)=>({label,handleIndex:7-i,lightStartKt:light[i],heavyStartKt:heavy[i],excludeFromDisplay:i===1||i===2}))};
+        a.host.getPublishedWsgCatalog=async()=>({revision:16,profiles:[profile]});
+        a.host.matchWsgAircraft=async(container:string,span:number)=>container==='gotfriends_schleicher_as_33_me'&&span===18?{variantKey:profile.variantKey,displayName:'AS33 18m',profile,visualVneTasKph:282}:null;
+        a.onSample({...a.lastSample,connected:true,inFlight:true,onGround:false,aircraftTitle:'Exact WSG AS33',aircraftContainer:'gotfriends_schleicher_as_33_me',wingSpanM:18,flapCount:8,flapIndex:6,totalWeightKg:500,iasKt:170,t:Date.now()});
+      });
+      const labels=async(p:Page)=>p.locator('.fh-cell').allTextContents();
+      const expected=['L–6–5','N','4','3','2','1'];
+      await page.waitForFunction(()=> (window as any).__flapHappy.app.activeProfileSource==='wsg');
+      await panel.waitForFunction(()=>document.querySelectorAll('.fh-cell').length===6&&document.querySelector('.fh-cell')?.textContent==='L–6–5',{}, {polling:100,timeout:10000});
+      expect(await labels(page)).toEqual(expected);expect(await labels(panel)).toEqual(expected);
+      expect(await page.locator('.fh-cell.current').textContent()).toBe('L–6–5');
+      expect(await panel.locator('.fh-badge.mapped').textContent()).toBe('6');
+      expect(await page.locator('.fh-readout.fast').count()).toBe(0);
+      const childEvent=app.waitForEvent('window');await page.click('.fh-cog');const editor=await childEvent;
+      await editor.waitForSelector('.fh-wsg-ballast');
+      await editor.selectOption('.fh-wsg-ballast','manual');
+      await editor.selectOption('[aria-label="Transition 4 visibility"]','hide');
+      await editor.click('.fh-wsg-save-adjustments');
+      await editor.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+      await page.waitForFunction(()=>document.querySelector('.fh-ballast-row') instanceof HTMLElement && (document.querySelector('.fh-ballast-row') as HTMLElement).offsetHeight>0,{}, {polling:100,timeout:10000});
+      await panel.waitForFunction(()=>[...document.querySelectorAll('.fh-cell')].some(x=>x.textContent==='4–3'),{}, {polling:100,timeout:10000});
+      expect(await labels(panel)).toEqual(['L–6–5','N','4–3','2','1']);
+      expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile.weight_kg)).toEqual({light:485,heavy:600});
+      await editor.click('.fh-wsg-reset-adjustments');
+      await panel.waitForFunction(()=>document.querySelectorAll('.fh-cell').length===6,{}, {polling:100,timeout:10000});
+      expect(await labels(panel)).toEqual(expected);
+      await editor.click('.fh-settings .fh-back');
+      await page.evaluate(()=>{const a=(window as any).__flapHappy.app;a.onSample({...a.lastSample,t:Date.now()-5000});});
+      await panel.waitForFunction(()=>!document.querySelector('.fh-cell.current'),{}, {polling:100,timeout:10000});
+      expect(await page.locator('.fh-cell.current').count()).toBe(0);
+      await page.evaluate(()=>{const a=(window as any).__flapHappy.app;a.onSample({...a.lastSample,aircraftTitle:'Other unmatched glider',aircraftContainer:'other_model',t:Date.now()});});
+      await panel.waitForFunction(()=>document.querySelector('.fh-hint')?.textContent?.includes('No profile')&&!document.querySelector<HTMLElement>('.fh-fit')?.offsetHeight,{}, {polling:100,timeout:10000});
+      expect(await page.evaluate(()=> (window as any).__flapHappy.app.profile)).toBeNull();
+    }finally{await browser?.close();await app.close();fs.rmSync(ud,{recursive:true,force:true});}
+  });
   it('starts in compact mode with no MINI/FULL button and keeps the display', async () => {
     const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-e2e-'));
     const { app, page } = await launch(ud);

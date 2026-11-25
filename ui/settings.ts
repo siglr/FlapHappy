@@ -13,7 +13,7 @@ import {
 import { formatSpeedField, heightToMetres, heightUnitLabel, metresToHeight, unitLabel, unitToKnots, type SpeedUnit } from '../core/units';
 import { validateProfile } from '../core/validate';
 import type { WsgCatalog, WsgPublishedProfile } from '../core/wsg-catalog';
-import { mappingIdentity, resetWsgOverrides, resolveWsgOverrides, transitionIdentity, type WsgOverrides } from '../core/wsg-overrides';
+import { mappingIdentity, resetWsgOverrides, resolveWsgOverrides, transitionIdentity, wsgStallContext, type WsgOverrides } from '../core/wsg-overrides';
 import { canSaveWeightMode, profileForWeightMode, weightModeForProfile, type WeightMode } from '../core/weight';
 import { clear, fmtNum, h, numberOrNull, setText, toggleClass } from './dom';
 import type { App } from './app';
@@ -101,7 +101,7 @@ export class SettingsView {
     await this.app.refreshMetas();
     const imp = this.app.consumeImport();
     if (this.app.unsaved) this.draft = cloneProfile(this.app.unsaved);
-    else if (this.app.profile) this.draft = cloneProfile(this.app.profile);
+    else if (this.app.profile && !this.app.profile.wsg) this.draft = cloneProfile(this.app.profile);
     this.weightMode = this.app.unsaved ? this.app.unsavedWeightMode : weightModeForProfile(this.draft);
     this.draftBindingKey = this.app.unsaved ? this.app.draftAircraftBindingKey : this.app.currentAircraftBindingKey;
     this.mappingOpen = this.draft?.flaps.length === 0;
@@ -368,7 +368,7 @@ export class SettingsView {
 
   private discardEdits(): void {
     if (!this.dirty) return;
-    this.setDraft(this.app.profile ? cloneProfile(this.app.profile) : null);
+    this.setDraft(this.app.profile && !this.app.profile.wsg ? cloneProfile(this.app.profile) : null);
     toggleClass(this.saveState, 'dirty', false);
     setText(this.saveState, 'Unsaved changes discarded');
   }
@@ -468,7 +468,7 @@ export class SettingsView {
     this.table.appendChild(mapping);
   }
 
-  /** Do not activate a published table until standalone bound and exclusion semantics are supported. */
+  /** Published baseline is read-only; personal adjustments are local and sparse. */
   private renderWsgPreview(p: WsgPublishedProfile): void {
     const unit = this.app.settings.units === 'kmh' ? 'kmh' : 'kt';
     const speed = (kt: number | null) => kt === null ? 'Not published' : formatSpeedField(kt, unit);
@@ -476,16 +476,16 @@ export class SettingsView {
     const row = (name: string, l: string, r: string) => h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, name), cell(l), cell(r));
     this.table.appendChild(h('div', { class: 'fh-profile-card fh-wsg-preview' },
       h('div', { class: 'fh-subtitle' }, p.variantKey + ' — published WSG.org profile'),
-      h('div', { class: 'fh-hint' }, 'Read-only preview. Your local flight profile is unchanged. WSG profiles always use live weight.'),
+      h('div', { class: 'fh-hint' }, 'Published baseline. Personal adjustments below are local; WSG profiles default to live weight.'),
       row('', 'Light', 'Heavy'), row('Flying weight (kg)', String(p.lightWeightKg), String(p.heavyWeightKg)),
       row('Stall IAS (' + unitLabel(unit) + ')', speed(p.lightStallIasKph === null ? null : p.lightStallIasKph / 1.852), speed(p.heavyStallIasKph === null ? null : p.heavyStallIasKph / 1.852)),
-      h('div', { class: 'fh-hint' }, 'IAS upper bound is not published in this catalog. TAS VNE is not substituted.')));
+      h('div', { class: 'fh-hint' }, 'An IAS upper limit is not published. Without a personal IAS limit, the upper ribbon edge is visual only.')));
     const transitions = h('div', { class: 'fh-profile-card fh-wsg-transitions' }, h('div', { class: 'fh-subtitle' }, 'Published transition IAS (' + unitLabel(unit) + ')'), row('From → To', 'Light', 'Heavy'));
     for (let i = 1; i < p.bands.length; i++) {
       const b = p.bands[i], from = p.bands[i - 1];
       transitions.appendChild(row(from.label + ' → ' + b.label + (b.excludeFromDisplay ? ' (Hide)' : ' (Show)'), speed(b.lightStartKt), speed(b.heavyStartKt)));
     }
-    transitions.appendChild(h('div', { class: 'fh-hint' }, 'Flight activation is pending standalone support for the published exclusion rules and complete IAS bounds. No local profiles are overwritten.'));
+    transitions.appendChild(h('div', { class: 'fh-hint' }, 'Hidden transitions merge adjacent flap positions. The underlying native mapping is unchanged.'));
     this.table.appendChild(transitions);
     this.renderWsgAdjustments(p);
   }
@@ -506,6 +506,8 @@ export class SettingsView {
     const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph);
     const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid'},h('div',{class:'fh-profile-title'},name),...controls);
     box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS (km/h)',ls,rs));
+    box.appendChild(h('div',{class:'fh-hint'},'Stall IAS refers to the detent before the first shown transition and the exact Light/Heavy weights. Changing either requires both personal stall IAS values to enable the warning.')); 
+    const upper=number('upperIasKph',null,prior?.upperIasKph);box.appendChild(row('Personal upper IAS limit (km/h)',upper));
     box.appendChild(h('div',{class:'fh-hint'},'Speed overrides below are IAS in km/h; published reference weights are retained even in Manual ballast mode.'));
     const rows=p.bands.slice(1).map((b,i)=>{
       const id=transitionIdentity(p.bands[i],b),t=prior?.transitions?.[id];
@@ -520,15 +522,21 @@ export class SettingsView {
       try{
         const o:WsgOverrides={mapping:mappingIdentity(p),transitions:{}};
         if(mode.value==='manual'||mode.value==='live')o.ballastMode=mode.value;
-        const vals={lightWeightKg:read(l),heavyWeightKg:read(r),lightStallIasKph:read(ls),heavyStallIasKph:read(rs)};
+        const vals={lightWeightKg:read(l),heavyWeightKg:read(r),lightStallIasKph:read(ls),heavyStallIasKph:read(rs),upperIasKph:read(upper)};
         for(const k of Object.keys(vals) as (keyof typeof vals)[])if(vals[k]!==undefined)o[k]=vals[k];
         for(const x of rows){const a=read(x.light),b=read(x.heavy);const t:{lightStartKt?:number;heavyStartKt?:number;excludeFromDisplay?:boolean}={};if(a!==undefined)t.lightStartKt=a/1.852;if(b!==undefined)t.heavyStartKt=b/1.852;if(x.visibility.value!=='inherit')t.excludeFromDisplay=x.visibility.value==='hide';if(Object.keys(t).length)o.transitions![x.id]=t;}
+        const context=wsgStallContext(p,o);
+        if(o.lightStallIasKph!==undefined||o.heavyStallIasKph!==undefined){
+          if(!context)throw Error('A stall pair needs a first visible transition.');
+          if(context!==wsgStallContext(p)&&(o.lightStallIasKph===undefined||o.heavyStallIasKph===undefined))throw Error('Changed stall context: supply both IAS values or leave both empty.');
+          o.stallContext=context;
+        }
         const candidate={...app.settings.wsg_profile_overrides,[p.variantKey]:o};
         if(resolveWsgOverrides(p,candidate).state!=='ok')throw Error('Invalid curve: check ordered IAS, reference weights and both stall values. Changed weights require a complete personal curve.');
-        app.settings.wsg_profile_overrides=candidate;await app.persistNow();setText(status,'Personal adjustments saved locally. Flight activation is not available in this preview.');
+        app.settings.wsg_profile_overrides=candidate;await app.persistNow();app.refreshWsgAdjustments(p.variantKey);setText(status,'Personal adjustments saved locally.');
       }catch(e){setText(status,e instanceof Error?e.message:'Could not save adjustments.');}
     }},'Save personal adjustments');
-    const reset=h('button',{type:'button',class:'fh-btn fh-wsg-reset-adjustments',onclick:async()=>{app.settings.wsg_profile_overrides=resetWsgOverrides(app.settings.wsg_profile_overrides,p.variantKey);await app.persistNow();this.renderAll();}},'Reset to WSG defaults');
+    const reset=h('button',{type:'button',class:'fh-btn fh-wsg-reset-adjustments',onclick:async()=>{app.settings.wsg_profile_overrides=resetWsgOverrides(app.settings.wsg_profile_overrides,p.variantKey);await app.persistNow();app.refreshWsgAdjustments(p.variantKey);this.renderAll();}},'Reset to WSG defaults');
     box.appendChild(h('div',{class:'fh-tools'},save,reset));this.table.appendChild(box);
   }
 
@@ -676,11 +684,11 @@ export class SettingsView {
   /** Cheap per-sample update: the live line. */
   updateLive(): void {
     const app = this.app;
-    if (!this.wsgPreview && !this.dirty && !app.profile && app.detectedWsgVariant && this.wsgCatalog?.profiles.some(p => p.variantKey === app.detectedWsgVariant)) {
+    if (!this.wsgPreview && !this.dirty && (!app.profile || !!app.profile.wsg) && app.detectedWsgVariant && this.wsgCatalog?.profiles.some(p => p.variantKey === app.detectedWsgVariant)) {
       this.previewWsg(app.detectedWsgVariant);
       return;
     }
-    if (this.wsgPreview) { setText(this.liveLine, 'Published preview only. Local profile remains active.'); return; }
+    if (this.wsgPreview) { setText(this.liveLine, this.app.profile?.wsg?.variantKey===this.wsgPreview.variantKey?'Active WSG variant. Personal adjustments apply to this profile.':'Viewing published baseline. Active flight profile is unchanged.'); return; }
     const d = this.draft;
     const s = app.lastSample;
     let live = 'Live: no sim data';

@@ -81,6 +81,7 @@ button, input, select { font-family: inherit; font-size: 14px; }
 .fh-badge { display: none; font-size: 14px; font-weight: 700; margin-top: 2px; padding: 1px 6px; border-radius: 4px; width: 90px; text-align: center; letter-spacing: 0; }
 .fh-badge.on { display: block; }
 .fh-badge.unknown, .fh-badge.manual { color: #1a1204; background: #ffb84d; }
+.fh-badge.mapped { color:white; background:#2f8fd8; }
 .fh-badge.other { color: #fff; border: 2px solid #fff; background: transparent; font-size: 18px; }
 .fh-tick-row { margin-bottom: 4px; }
 .fh-ticklabels { flex: 1; position: relative; height: 26px; }

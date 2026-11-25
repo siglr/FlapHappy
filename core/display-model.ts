@@ -1,3 +1,4 @@
+import { wsgBoundaries,wsgGroups } from './wsg-flight';
 import type { Profile, ValidationResult } from './types';
 import type { SimSample } from './sim';
 import type { CurrentFlap } from './flapmap';
@@ -23,7 +24,7 @@ export interface CellModel {
 }
 
 export interface FlapBadge {
-  kind: 'unknown' | 'other' | 'manual';
+  kind: 'unknown' | 'other' | 'manual' | 'mapped';
   text: string;
 }
 
@@ -141,10 +142,10 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
 
   const n = profile.flaps.length;
   const fraction = interpolationFraction(profile, weight, inp.manualBallast);
-  const boundaries = validation.ok && fraction !== null ? effectiveBoundaries(profile, fraction) : null;
+  const boundaries = validation.ok && fraction !== null ? (profile.wsg?wsgBoundaries(profile,fraction):effectiveBoundaries(profile, fraction)) : null;
   base.mode = n === 0 ? 'noflaps' : validation.ok ? 'ok' : 'incomplete';
   if (base.mode === 'incomplete') base.incompleteMessage = 'profile incomplete: open settings';
-  else if (weight.anchorsValid && weight.kg === null) base.incompleteMessage = 'Flying weight unavailable';
+  else if (fraction===null && weight.anchorsValid && weight.kg === null) base.incompleteMessage = 'Flying weight unavailable';
 
   // Flap cells: one per row.
   if (n > 0 && validation.structureOk) {
@@ -157,6 +158,15 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
   } else if (n > 0) {
     base.cells = profile.flaps.map((row) => ({ label: row.label, state: 'other' as const }));
   }
+
+  if(profile.wsg&&n>0&&validation.structureOk){
+    const groups=wsgGroups(profile);
+    const exact=live?flap.rowIndex:null;
+    base.currentRow=exact===null?null:groups.members.findIndex(m=>m.includes(exact));
+    if(base.currentRow===-1)base.currentRow=null;
+    base.cells=groups.labels.map((label,i)=>({label,state:base.currentRow===i?'current':'other'}));
+    if(base.currentRow!==null&&groups.members[base.currentRow].length>1&&flap.label)base.badge={kind:'mapped',text:flap.label};
+  }else if(profile.wsg){base.currentRow=null;base.cells=[];}
 
   if (link !== 'waiting') {
     if (flap.status === 'unknown' && n > 0) base.badge = { kind: 'unknown', text: 'FLAP ?' };
@@ -178,7 +188,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
       } else {
         const m = mapMarker(ias, boundaries, base.edges);
         base.marker = { pos: m.pos, region: m.region, greyed: false };
-        base.alert = m.region === 'below' ? 'LOW' : m.region === 'above' ? 'FAST' : null;
+        base.alert = m.region === 'below' && (!profile.wsg || profile.vs_min.no_ballast_kt!==null) ? 'LOW' : m.region === 'above' && (!profile.wsg||profile.vne!==null) ? 'FAST' : null;
       }
     }
   }

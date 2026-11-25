@@ -61,6 +61,10 @@ export class CurrentFlapResolver {
     }
     const unknown: CurrentFlap = { status: 'unknown', rowIndex: null, label: null, handleIndex: null, via: null };
     if (!s || !s.connected) return unknown;
+    if(p.wsg){
+      if(s.flapCount!==p.handle_count||!isValidIndex(s.flapIndex,s.flapCount))return unknown;
+      const exact=lookupIndex(p,s.flapIndex);return exact?{...exact,via:'index'}:unknown;
+    }
     const order = [p.current_flap.source].concat(CANONICAL.filter((x) => x !== p.current_flap.source));
     const count = s.flapCount;
     let result: CurrentFlap | null = null;

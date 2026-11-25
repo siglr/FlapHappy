@@ -1,3 +1,5 @@
+import type { WsgAircraftMatch } from '../core/wsg-reference';
+import { wsgFlightProfile,wsgBoundaries } from '../core/wsg-flight';
 import type { DataSource, Host, HostInfo, ProfileStore, SimSample } from '../core/sim';
 import type { CockpitState } from '../core/cockpit';
 import type { Profile, ProfileMeta, Settings, ValidationResult } from '../core/types';
@@ -68,10 +70,11 @@ export class App {
   private liveSelectionGeneration = 0;
   private noProfileMessage = '';
   detectedWsgVariant: string | null = null;
+  private activeWsgMatch:WsgAircraftMatch|null=null;
   private profileEditorWindow: Window|null=null;
   private profileControls: HTMLElement|null=null;
   private profileControlsSignature='';
-  activeProfileSource: 'manual'|'assigned'|'local'|'fallback'|'none' = 'none';
+  activeProfileSource: 'manual'|'assigned'|'local'|'fallback'|'wsg'|'none' = 'none';
   private unsavedBindingKey: string | null = null;
   get currentAircraftBindingKey(): string | null { return this.liveBindingKey; }
   get draftAircraftBindingKey(): string | null { return this.unsavedBindingKey; }
@@ -193,7 +196,7 @@ export class App {
     const picker=h('select',{class:'fh-in fh-profile-choice','aria-label':choice.mode==='manual'?'Active profile':'Fallback profile'},h('option',{value:''},'None'),...candidates.map(m=>h('option',{value:m.id},profileLabel(m.id)))) as HTMLSelectElement;
     const saved=choice[field];if(saved&&!candidates.some(m=>m.id===saved))picker.appendChild(h('option',{value:saved},saved+' (unavailable)'));
     picker.value=saved??'';picker.addEventListener('change',()=>this.setProfileSelection(choice.mode,field,picker.value||null));
-    const source=this.profile?this.activeProfileSource==='fallback'?'Fallback profile':this.activeProfileSource==='manual'?'Manual profile':this.activeProfileSource==='assigned'?'Assigned local profile':'Matched local profile':this.detectedWsgVariant?'WSG '+this.detectedWsgVariant+' (not usable yet)':'No active profile';
+    const source=this.profile?this.activeProfileSource==='wsg'?'WSG published profile':this.activeProfileSource==='fallback'?'Fallback profile':this.activeProfileSource==='manual'?'Manual profile':this.activeProfileSource==='assigned'?'Assigned local profile':'Matched local profile':this.detectedWsgVariant?'WSG '+this.detectedWsgVariant+' (no active profile)':'No active profile';
     root.appendChild(h('label',{},'Profile mode',select));root.appendChild(h('label',{},choice.mode==='manual'?'Active profile':'Fallback profile',picker));
     root.appendChild(h('div',{class:'fh-profile-current',role:'status'},source+(this.profile?': '+profileLabel(this.profile.id):'')));
   }
@@ -277,6 +280,7 @@ export class App {
 
   private onSample(s: SimSample): void {
     const now = Date.now();
+    const previousCount=this.lastSample?.flapCount;
     this.lastSample = s;
     this.lastRx = this.deps.info.source === 'replay' && !this.usingSim ? now : s.t;
     if (this.strictLiveSelection()) {
@@ -288,6 +292,9 @@ export class App {
         const generation = ++this.liveSelectionGeneration;
         this.clearLiveProfile(title ? 'No profile for this aircraft. Choose a custom profile in Settings.' : 'Waiting for MSFS aircraft.');
         if (title && binding || this.settings.profile_selection.mode==='manual') void this.selectForLiveAircraft(title, binding, generation, s);
+      } else if(previousCount!==s.flapCount&&this.activeWsgMatch&&(!this.profile||this.activeProfileSource==='fallback'||this.activeProfileSource==='local')&&this.settings.profile_selection.mode==='auto') {
+        const effective=wsgFlightProfile(this.activeWsgMatch,this.settings.wsg_profile_overrides);
+        if(effective&&validateProfile(effective,{liveHandleCount:s.flapCount}).ok){this.activeProfileSource='wsg';this.setActiveProfile(effective,true);}
       }
     } else if (s.connected && s.aircraftTitle && s.aircraftTitle !== this.lastTitle) {
       this.lastTitle = s.aircraftTitle;
@@ -337,6 +344,7 @@ export class App {
     this.validation = null;
     this.noProfileMessage = message;
     this.detectedWsgVariant = null;
+    this.activeWsgMatch=null;
     this.activeProfileSource = 'none';
     this.resolver.reset();
     this.deps.realSource?.setLvarName?.(null);
@@ -359,14 +367,31 @@ export class App {
       const matched=await host.matchWsgAircraft!(sample.aircraftContainer!,sample.wingSpanM!);
       if(generation!==this.liveSelectionGeneration||binding!==this.liveBindingKey)return;
       this.detectedWsgVariant=matched?.variantKey??null;
-      // No WSG flight profile until its missing IAS bounds and grouped exclusions are supported.
+      this.activeWsgMatch=matched;
+      const effective=matched?wsgFlightProfile(matched,this.settings.wsg_profile_overrides):null;
+      if(effective){
+        const choice=resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:matched!.variantKey});
+        if(choice.kind==='wsg'&&validateProfile(effective,{liveHandleCount:this.lastSample?.flapCount}).ok){
+          this.activeWsgMatch=matched;this.activeProfileSource='wsg';this.setActiveProfile(effective,true);return;
+        }
+      }
       if(matched)this.noProfileMessage=matched.profile
-        ? 'WSG '+matched.variantKey+': published profile not yet usable in flight. Choose a local profile in Settings.'
+        ? 'WSG '+matched.variantKey+': profile or local overrides incompatible. Check Settings.'
         : 'WSG '+matched.variantKey+': no published flap profile. Choose a custom profile in Settings.';
     }catch{/* Offline: use only explicitly configured fallback or unique local title rule. */}
     if(generation!==this.liveSelectionGeneration)return;
     await this.applyLocalChoice(resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:null}),generation);
     this.renderAll();
+  }
+
+  /** Re-resolve saved edits against the exact already-confirmed aircraft, without
+   * a second network dependency during editing. */
+  refreshWsgAdjustments(key:string):void {
+    if(this.activeWsgMatch?.variantKey!==key||!this.settings.wsg_profiles_enabled||this.settings.profile_selection.mode!=='auto')return;
+    if(this.profile&&!this.profile.wsg&&this.activeProfileSource!=='fallback'&&this.activeProfileSource!=='local')return;
+    const next=wsgFlightProfile(this.activeWsgMatch,this.settings.wsg_profile_overrides);
+    if(next&&validateProfile(next,{liveHandleCount:this.lastSample?.flapCount}).ok){this.activeProfileSource='wsg';this.setActiveProfile(next,false);}
+    else this.refreshLiveProfileSelection();
   }
 
   private async autoSelectForTitle(title: string): Promise<void> {
@@ -428,7 +453,7 @@ export class App {
    */
   async saveProfile(p?: Profile, weightMode = p ? weightModeForProfile(p) : this.unsavedWeightMode): Promise<boolean> {
     const draft = p ?? this.unsaved;
-    if (!draft || !canSaveWeightMode(draft, weightMode)) return false;
+    if (!draft || draft.wsg || !canSaveWeightMode(draft, weightMode)) return false;
     const d = profileForWeightMode(draft, weightMode);
     const intendedBinding = this.unsaved?.id === d.id ? this.unsavedBindingKey : this.liveBindingKey;
     await this.deps.store.save(d);
@@ -510,7 +535,7 @@ export class App {
   currentBoundaries(): number[] | null {
     const w = liveWeight(this.profile, this.lastSample, deriveLink(this.lastSample, this.lastRx, Date.now()) === 'live');
     const fraction = interpolationFraction(this.profile, w, this.ballast.f);
-    return this.profile && this.validation?.ok && fraction !== null ? effectiveBoundaries(this.profile, fraction) : null;
+    return this.profile && this.validation?.ok && fraction !== null ? (this.profile.wsg?wsgBoundaries(this.profile,fraction):effectiveBoundaries(this.profile, fraction)) : null;
   }
 
   // ------------------------------------------------------------------ Window
@@ -658,7 +683,7 @@ export class App {
     if (profile === this.profile) this.flap = flap;
     return buildDisplayModel({
       profile,
-      validation,
+      validation:profile?.wsg?validateProfile(profile,{liveHandleCount:this.lastSample?.flapCount}):validation,
       sample: this.lastSample,
       link,
       manualBallast: this.ballast.f,
