@@ -49,7 +49,7 @@ async function openExternal(app: ElectronApplication, main: Page): Promise<Page>
 }
 
 async function openEditor(app:ElectronApplication,main:Page):Promise<Page>{
- const created=app.waitForEvent('window');await main.click('.fh-main-settings');const editor=await created;await editor.waitForSelector('.fh-profile-select');return editor;
+ const created=app.waitForEvent('window');await main.click('.fh-main-profiles');const editor=await created;await editor.waitForSelector('.fh-profile-select');return editor;
 }
 
 async function closeExternal(app: ElectronApplication, main: Page): Promise<void> {
@@ -64,6 +64,36 @@ async function clickBallast(panel: Page, fraction: number) {
 }
 
 describe.skipIf(!canRun)('visible control window and optional external panel', () => {
+  it('shows desktop session status and lets keyboard tab navigation retain unsaved profile edits',async()=>{
+    const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-desktop-settings-'));
+    const {app,page}=await launch(ud);
+    try{
+      await page.waitForSelector('.fh-main-connection');
+      expect(await page.locator('.fh-main-connection').textContent()).toBe('Demo (simulated)');
+      await page.waitForFunction(()=>document.querySelector('.fh-main-aircraft')?.textContent==='Simulated glider');
+      await page.selectOption('.fh-profile-mode','manual');
+      await page.selectOption('.fh-profile-choice','demo-as33-18m');
+      await waitUntil(async()=> (await getFeed()).profile?.id==='demo-as33-18m');
+      expect(await page.locator('.fh-main-active-profile').textContent()).toBe('demo-as33-18m');
+      expect(await page.locator('.fh-main-external-state').textContent()).toBe('Closed');
+      const created=app.waitForEvent('window');await page.click('.fh-main-settings');const editor=await created;
+      await editor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');
+      const display=editor.getByRole('tab',{name:'Display'});await display.focus();await editor.keyboard.press('ArrowRight');
+      await editor.waitForSelector('.fh-settings-tab-panel[aria-selected="true"]');
+      await editor.keyboard.press('ArrowRight');await editor.waitForSelector('.fh-settings-tab-profiles[aria-selected="true"]');
+      const field=editor.locator('[data-path="vs_min.no_ballast_kt"]');await field.waitFor();const original=await field.inputValue();
+      await field.fill('33');
+      await editor.getByRole('tab',{name:'Display'}).click();expect(await editor.locator('.fh-save').isVisible()).toBe(false);
+      await editor.getByRole('tab',{name:'Profiles'}).click();expect(await field.inputValue()).toBe('33');expect(await editor.locator('.fh-save').isEnabled()).toBe(true);
+      await editor.locator('.fh-discard-edits').click();expect(await field.inputValue()).toBe(original);
+      expect(fs.readdirSync(path.join(ud,'profiles'))).toEqual([]);
+      await editor.locator('.fh-back').click();
+      const panel=await openExternal(app,page);expect(await panel.locator('.fh-fit').isVisible()).toBe(true);
+      expect(await page.locator('.fh-main-external-state').textContent()).toBe('Open');
+      await closeExternal(app,page);expect(await page.locator('.fh-main-external-state').textContent()).toBe('Closed');
+    }finally{await app.close();}
+  });
+
   it('starts visibly with no ribbon, opens/closes/reopens the common panel and keeps feeding while minimized', async () => {
     const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'flaphappy-main-window-'));
     const fixture = makeProfile(2, { id: 'panel-fixture' });
@@ -210,7 +240,7 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
       instance=await launch(ud);
       ({app,page}=instance);
       expect(await countWindows(app)).toBe(1);
-      expect(await page.$eval('.fh-title',e=>e.textContent)).toBe('new-profile');
+      expect(await page.$eval('.fh-main-active-profile',e=>e.textContent)).toBe('new-profile');
       panel=await openExternal(app,page);
       await pct(panel,'60%');
       expect(await panel.$$eval('.fh-cell',els=>els.map(e=>e.textContent))).toEqual(labels);
@@ -236,7 +266,7 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
       for(const host of [panel,cockpit]){
         await host.waitForFunction(()=>document.querySelector('.fh-aglread')?.textContent?.includes('183 m')&&document.querySelector('.fh-aglwindtext')?.textContent?.includes('17 kt'),{}, {polling:100,timeout:10000});
       }
-      const editor=await openEditor(app,page);await editor.click('.fh-display-options summary');await editor.locator('.fh-show-agl').locator('..').click();
+      const editor=await openEditor(app,page);await editor.getByRole('tab',{name:'Display'}).click();await editor.locator('.fh-show-agl').locator('..').click();
       await waitUntil(async()=> (await getFeed()).showAgl===false,'AGL setting reaches session');
       for(const host of [panel,cockpit])await host.waitForFunction(()=>!document.querySelector<HTMLElement>('.fh-agl-row')?.offsetHeight,{}, {polling:100,timeout:10000});
       await editor.locator('.fh-show-agl').locator('..').click();await editor.locator('.fh-show-wind').locator('..').click();
@@ -249,11 +279,11 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
     const ud=fs.mkdtempSync(path.join(os.tmpdir(),'flaphappy-combined-simple-'));let instance=await launch(ud);
     try{
       let {app,page}=instance;let panel=await openExternal(app,page);let editor=await openEditor(app,page);
-      await editor.click('.fh-display-options summary');await editor.locator('.fh-show-transitions').locator('..').click();await editor.locator('.fh-simple-flap').locator('..').click();
+      await editor.getByRole('tab',{name:'Display'}).click();await editor.locator('.fh-show-transitions').locator('..').click();await editor.locator('.fh-simple-flap').locator('..').click();
       expect(await editor.locator('.fh-show-transitions').isDisabled()).toBe(true);expect(await editor.locator('.fh-show-transitions').isChecked()).toBe(true);
       await panel.waitForSelector('.fh-simple-row',{state:'visible'});expect(await panel.locator('.fh-ias-row').isVisible()).toBe(false);
       await editor.click('.fh-settings .fh-back');await app.close();instance=await launch(ud);({app,page}=instance);panel=await openExternal(app,page);await panel.waitForSelector('.fh-simple-row',{state:'visible'});
-      editor=await openEditor(app,page);await editor.click('.fh-display-options summary');expect(await editor.locator('.fh-show-transitions').isDisabled()).toBe(true);await editor.locator('.fh-simple-flap').locator('..').click();
+      editor=await openEditor(app,page);await editor.getByRole('tab',{name:'Display'}).click();expect(await editor.locator('.fh-show-transitions').isDisabled()).toBe(true);await editor.locator('.fh-simple-flap').locator('..').click();
       expect(await editor.locator('.fh-show-transitions').isEnabled()).toBe(true);expect(await editor.locator('.fh-show-transitions').isChecked()).toBe(true);
       await panel.waitForSelector('.fh-ias-row',{state:'visible'});
     }finally{await instance.app.close().catch(()=>{});fs.rmSync(ud,{recursive:true,force:true});}
@@ -264,10 +294,10 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
     try{
       const read=async()=> (await (await fetch(panelUrl+'/panel-settings')).json()).autoHideExternal;
       let {app,page}=instance;let panel=await openExternal(app,page);let editor=await openEditor(app,page);
-      await editor.getByText('Window and app',{exact:true}).click();expect(await editor.locator('.fh-auto-hide-external').isChecked()).toBe(false);
+      await editor.getByRole('tab',{name:'In-sim Panel'}).click();expect(await editor.locator('.fh-auto-hide-external').isChecked()).toBe(false);
       await editor.check('.fh-auto-hide-external');await waitUntil(async()=>await read()===true,'cockpit preference');expect(await panel.locator('.fh-fit').isVisible()).toBe(true);
       await editor.click('.fh-settings .fh-back');await app.close();instance=await launch(ud);({app,page}=instance);expect(await read()).toBe(true);
-      panel=await openExternal(app,page);expect(await panel.locator('.fh-fit').isVisible()).toBe(true);editor=await openEditor(app,page);await editor.getByText('Window and app',{exact:true}).click();expect(await editor.locator('.fh-auto-hide-external').isChecked()).toBe(true);
+      panel=await openExternal(app,page);expect(await panel.locator('.fh-fit').isVisible()).toBe(true);editor=await openEditor(app,page);await editor.getByRole('tab',{name:'In-sim Panel'}).click();expect(await editor.locator('.fh-auto-hide-external').isChecked()).toBe(true);
       await editor.uncheck('.fh-auto-hide-external');await waitUntil(async()=>await read()===false,'cockpit preference off');
     }finally{await instance.app.close().catch(()=>{});fs.rmSync(ud,{recursive:true,force:true});}
   });
@@ -287,7 +317,7 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
         await panel.waitForTimeout(200);
       }
       expect(seen.size).toBeGreaterThanOrEqual(3);
-      expect(await page.$eval('.fh-status',e=>e.textContent)).not.toContain('DEMO');
+      expect(await page.$eval('.fh-main-connection',e=>e.textContent)).not.toContain('DEMO');
       expect(await panel.$eval('.fh-readout',e=>e.textContent)).toMatch(/kt$/);
       await panel.screenshot({path:`${SHOT_DIR}/flaphappy-external-replay.png`});
     } finally {
@@ -296,4 +326,13 @@ describe.skipIf(!canRun)('visible control window and optional external panel', (
       fs.rmSync(ud,{recursive:true,force:true});
     }
   });
+});
+
+it.skipIf(!canRun)('desktop status and display labels fit the available window width',async()=>{
+ const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-layout-'));const {app,page}=await launch(ud);
+ try{
+  for(const width of [480,760,1200]){await app.evaluate(({BrowserWindow},w)=>BrowserWindow.getAllWindows()[0].setSize(w,560),width);await page.waitForTimeout(120);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(await page.evaluate(()=>document.querySelector('.fh-main-controls')!.getBoundingClientRect().width>=document.documentElement.clientWidth-25)).toBe(true);}
+  const created=app.waitForEvent('window');await page.click('.fh-main-settings');const editor=await created;await editor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');
+  for(const [width,zoom] of [[760,1],[1200,1],[480,1],[760,1.5]]){await app.evaluate(({BrowserWindow},d)=>{const w=BrowserWindow.getAllWindows().find(w=>w.getTitle().includes('Settings'))!;w.setSize(d.width,760);w.webContents.setZoomFactor(d.zoom);},{width,zoom});await editor.waitForTimeout(120);expect(await editor.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect((await editor.locator('.fh-optrow .fh-unitlab').filter({hasText:'Highlight suggested flap'}).boundingBox())!.height).toBeLessThan(25);}
+ }finally{await app.close();}
 });

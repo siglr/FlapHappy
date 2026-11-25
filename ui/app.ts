@@ -17,7 +17,7 @@ import { SimulatedSource } from '../adapters/simulated/simulated-source';
 import { clear, h, setText, toggleClass } from './dom';
 import { StripView } from './strip';
 import { WeightControl } from './slider';
-import { SettingsView, type ImportDraft } from './settings';
+import { SettingsView, type ImportDraft, type SettingsArea } from './settings';
 
 export interface AppDeps {
   root: HTMLElement;
@@ -56,6 +56,12 @@ export class App {
   private externalBtn: HTMLButtonElement | null = null;
   private launchCheck: HTMLInputElement | null = null;
   private externalOpen = false;
+  private panelUpdatePending=false;
+  private mainConnection:HTMLElement|null=null;
+  private mainAircraft:HTMLElement|null=null;
+  private mainActiveProfile:HTMLElement|null=null;
+  private mainProfileSource:HTMLElement|null=null;
+  private mainExternalState:HTMLElement|null=null;
   private displayView!: HTMLElement;
   private statusEl!: HTMLElement;
   private titleEl!: HTMLElement;
@@ -146,6 +152,7 @@ export class App {
 
   setPanelUpdateIndicator(status: import('../core/panel-install').PanelInstallStatus): void {
     const pending=status.installed&&status.action==='Update';
+    this.panelUpdatePending=pending;
     for(const button of this.deps.root.querySelectorAll<HTMLElement>('.fh-cog,.fh-main-settings')){
       button.classList.toggle('fh-panel-update',pending);
       button.title=pending?'Settings — panel update available':'Settings';
@@ -189,14 +196,19 @@ export class App {
       this.externalBtn = h('button', { class: 'fh-btn fh-external-toggle', type: 'button', onclick: () => void this.toggleExternal() }, 'Show external panel') as HTMLButtonElement;
       this.launchCheck = h('input', { class: 'fh-external-launch', type: 'checkbox', checked: this.settings.ui.external_panel_on_launch,
         onchange: (e: Event) => { this.settings.ui.external_panel_on_launch = (e.target as HTMLInputElement).checked; this.persistSoon(); } }) as HTMLInputElement;
-      const controls = h('div', { class: 'fh-main-controls' },
-        h('h1', null, 'Flap Happy'),
-        h('p', { class: 'fh-main-copy' }, 'The in-sim panel is available while Flap Happy runs. Open the external panel only when you want a desktop flight display.'),
-        h('div', { class: 'fh-main-actions' }, this.externalBtn,
-          h('button', { class: 'fh-btn fh-main-settings', type: 'button', onclick: () => this.openSettings() }, 'Settings and profiles')),
-        h('label', { class: 'fh-check fh-main-launch' }, this.launchCheck, ' Open the external panel on launch'),
-        h('p', { class: 'fh-hint' }, this.deps.info.panelAvailable ? 'Install the in-sim panel from Settings > Window and app.' : 'Panel feed unavailable. Check that another instance is not using the cockpit port.'));
-      this.displayView = h('div', { class: 'fh-display fh-main-display' }, controls, header, this.profileControls);
+      this.mainConnection=h('div',{class:'fh-main-value fh-main-connection'},'Waiting for MSFS');
+      this.mainAircraft=h('div',{class:'fh-main-value fh-main-aircraft'},'Aircraft not detected');
+      this.mainActiveProfile=h('div',{class:'fh-main-value fh-main-active-profile'},'None');
+      this.mainProfileSource=h('div',{class:'fh-main-meta fh-profile-current'},'No active profile');
+      this.mainExternalState=h('span',{class:'fh-main-external-state'},'Closed');
+      const card=(label:string,value:HTMLElement,meta?:HTMLElement)=>h('div',{class:'fh-main-status-card'},h('div',{class:'fh-main-kicker'},label),value,meta);
+      const controls=h('div',{class:'fh-main-controls'},
+        h('div',{class:'fh-main-heading'},h('div',null,h('h1',null,'Flap Happy'),h('p',{class:'fh-main-copy'},'Glider flap guidance for Microsoft Flight Simulator 2024')),h('button',{class:'fh-btn fh-main-settings',type:'button',onclick:()=>this.openSettings(this.panelUpdatePending?'panel':'display')},'Settings')),
+        h('div',{class:'fh-main-status-grid'},card('Simulator connection',this.mainConnection),card('Detected aircraft',this.mainAircraft),card('Active profile',this.mainActiveProfile,this.mainProfileSource)),
+        h('div',{class:'fh-main-section'},h('div',{class:'fh-main-section-heading'},h('h2',null,'Profile selection'),h('button',{class:'fh-btn fh-main-profiles',type:'button',onclick:()=>this.openSettings('profiles')},'Edit profiles')),this.profileControls),
+        h('div',{class:'fh-main-section fh-main-external'},h('div',{class:'fh-main-section-heading'},h('h2',null,'External panel'),this.mainExternalState),h('div',{class:'fh-main-actions'},this.externalBtn),h('label',{class:'fh-check fh-main-launch'},this.launchCheck,' Open the external panel on launch'),
+          h('p',{class:'fh-hint'},this.deps.info.panelAvailable?'The in-sim display remains available while the main app runs.':'Panel feed unavailable. Check that another instance is not using the cockpit port.')));
+      this.displayView=h('div',{class:'fh-display fh-main-display'},controls);
       this.paintExternal();
     } else {
       this.displayView = h('div', { class: 'fh-display' }, header, this.profileControls, this.strip!.el);
@@ -260,7 +272,7 @@ export class App {
     picker.value=saved??'';picker.addEventListener('change',()=>this.setProfileSelection(choice.mode,field,picker.value||null));
     const source=this.profile?this.activeProfileSource==='wsg'?'WSG published profile':this.activeProfileSource==='fallback'?'Fallback profile':this.activeProfileSource==='manual'?'Manual profile':this.activeProfileSource==='assigned'?'Assigned local profile':'Matched local profile':this.detectedWsgVariant?'WSG '+this.detectedWsgVariant+' (no active profile)':'No active profile';
     root.appendChild(h('label',{},'Profile mode',select));root.appendChild(h('label',{},choice.mode==='manual'?'Active profile':'Fallback profile',picker));
-    root.appendChild(h('div',{class:'fh-profile-current',role:'status'},source+(this.profile?': '+profileLabel(this.profile.id):'')));
+    if(!this.deps.info.mainWindow)root.appendChild(h('div',{class:'fh-profile-current',role:'status'},source+(this.profile?': '+profileLabel(this.profile.id):'')));
     if(this.mainWsgStatus)root.appendChild(h('div',{class:'fh-hint fh-picker-wsg-status'},this.mainWsgStatus));
   }
 
@@ -721,9 +733,9 @@ export class App {
 
   // ---------------------------------------------------------------- Settings
 
-  openSettings(): void {
-    if (this.settingsView) { this.profileEditorWindow?.focus(); return; }
-    this.settingsView = new SettingsView(this);
+  openSettings(area:SettingsArea='profiles'): void {
+    if (this.settingsView) { this.settingsView.selectArea(area);this.profileEditorWindow?.focus();return; }
+    this.settingsView = new SettingsView(this,area);
     clear(this.settingsHost);
     // Electron live mode uses a separate native editor. It owns no telemetry or
     // persistence service; the controls work against this same App instance.
@@ -732,7 +744,7 @@ export class App {
         const editor=window.open('about:blank','flaphappy-profiles','popup,width=760,height=760');
         if(editor){
           this.profileEditorWindow=editor;
-          editor.document.title='Flap Happy - Profiles';
+          editor.document.title='Flap Happy - Settings';
           const link=document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]');
           if(link){const css=editor.document.createElement('link');css.rel='stylesheet';css.href=link.href;editor.document.head.appendChild(css);}
           const root=editor.document.createElement('main');root.className='fh-root';editor.document.body.appendChild(root);
@@ -826,11 +838,25 @@ export class App {
     if (this.pinBtn) toggleClass(this.pinBtn, 'on', this.settings.ui.always_on_top);
     this.paintSaveButton();
     this.paintProfileControls();
+    this.paintMainStatus(model);
     if (this.onModel) this.onModel();
+  }
+
+  private paintMainStatus(model:DisplayModel):void{
+    if(!this.mainConnection||!this.mainAircraft||!this.mainActiveProfile||!this.mainProfileSource)return;
+    const connected=this.usingSim?'Demo (simulated)':this.deps.info.source==='replay'?(model.link==='live'?'Replay (simulated)':'Replay waiting'):model.link==='live'?'Connected to MSFS':model.link==='paused'?'Connected / paused':model.link==='nodata'?'MSFS data unavailable':'Waiting for MSFS';
+    setText(this.mainConnection,connected);
+    this.mainConnection.classList.toggle('fh-main-live',model.link==='live');
+    setText(this.mainAircraft,this.lastSample?.connected&&this.lastSample.aircraftTitle?this.lastSample.aircraftTitle+(model.link==='nodata'?' (last seen)':''):'Aircraft not detected');
+    setText(this.mainActiveProfile,this.profile?this.profile.id:'None');
+    const type=this.profile?.wsg?'WSG.org':this.profile?.source==='preset'&&this.profile.id.startsWith('demo-')?'Demo example':this.profile?'Custom profile':'No active profile';
+    const source=this.activeProfileSource==='manual'?'Manual selection':this.activeProfileSource==='fallback'?'Fallback':this.activeProfileSource==='assigned'?'Aircraft assignment':this.activeProfileSource==='local'||this.activeProfileSource==='wsg'?'Auto-detected':'';
+    setText(this.mainProfileSource,type+(this.profile&&source?' - '+source:''));
   }
 
   private paintExternal(): void {
     if (!this.externalBtn) return;
+    if(this.mainExternalState)setText(this.mainExternalState,this.externalOpen?'Open':'Closed');
     this.externalBtn.textContent = this.externalOpen ? 'Close external panel' : 'Show external panel';
     this.externalBtn.disabled = !this.deps.info.panelAvailable;
     this.externalBtn.setAttribute('aria-pressed', String(this.externalOpen));

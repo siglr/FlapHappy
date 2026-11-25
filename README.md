@@ -36,7 +36,7 @@ The previous experimental windowless launch flag is no longer a windowless mode.
 
 ### Auto-hide in external views (optional)
 
-In Settings → Window and app, enable **Auto-hide from external views (in-sim panel only)**. It defaults off. Reinstall the cockpit panel from Settings to update an older installed wrapper. The panel stays loaded and becomes visible again in cockpit view. The desktop display is unaffected. The implementation recognizes the SDK's named chase, fixed, environment, showcase and drone states; ambiguous/unknown values remain visible. The [MSFS 2024 Camera Variables documentation](https://docs.flightsimulator.com/msfs2024/retail/programming-apis/simvars/camera-variables/) inconsistently describes value 9, so it is not used as proof of an external view. Live MSFS and VR validation is still needed.
+In Settings → In-sim Panel, enable **Auto-hide from external views (in-sim panel only)**. It defaults off. Reinstall the cockpit panel from Settings to update an older installed wrapper. The panel stays loaded and becomes visible again in cockpit view. The desktop display is unaffected. The implementation recognizes the SDK's named chase, fixed, environment, showcase and drone states; ambiguous/unknown values remain visible. The [MSFS 2024 Camera Variables documentation](https://docs.flightsimulator.com/msfs2024/retail/programming-apis/simvars/camera-variables/) inconsistently describes value 9, so it is not used as proof of an external view. Live MSFS and VR validation is still needed.
 ### First use
 1. Click Settings and profiles in the main window.
 2. A new Live installation uses the public exact-variant WSG catalog and local custom profiles. The three historical native examples are now labeled Demo fixtures for offline testing, not Live defaults. Existing profile files, edits, preferences and assignments are preserved.
@@ -133,13 +133,13 @@ Everything above runs and is tested without the sim. These need a real Windows m
 4. Sample rate and behaviour on pause, menus, loading and slew (the "Paused" / "No data" states).
 5. Always-on-top over MSFS in windowed, borderless and true fullscreen modes (the app uses the highest topmost level; exclusive fullscreen may still hide it).
 6. Packaging: the portable exe starts, SmartScreen behaviour, `%APPDATA%\FlapHappy` creation, file open/save dialogs, "Open profiles folder".
-7. Cockpit panel: Settings → Window and app → **Enable in-sim panel**, then restart MSFS. In the cockpit (including VR) press Tab and open **Flap Happy**. The main application must be running; the external flight ribbon is optional.
+7. Cockpit panel: Settings → In-sim Panel → **Enable in-sim panel**, then restart MSFS. In the cockpit (including VR) press Tab and open **Flap Happy**. The main application must be running; the external flight ribbon is optional.
 8. The `--record` trace from a real flight replays correctly with `--source=replay`.
 
 
 ### In-sim panel installation management
 
-Settings → Window and app → In-sim panel: choose the detected MSFS 2024 Community folder or an existing custom add-ons library parent. Browse is available only for a custom destination. Selecting the detected Community folder directly normalizes to Default Community.
+Settings → In-sim Panel: choose the detected MSFS 2024 Community folder or an existing custom add-ons library parent. Browse is available only for a custom destination. Selecting the detected Community folder directly normalizes to Default Community.
 
 Enable installs the verified bundled panel, disabling removes a verified physical install. An installed older package exposes Update and a Settings badge. Equal or newer versions are not overwritten. This is a bundled-version check, not a desktop release checker. Close MSFS before making changes. A custom package may be linked by MSFS Addons Linker; Flap Happy never creates or removes those links. Unlink before removing. Changing destination does not move the existing package; remove/unlink the old installation explicitly first. If a target is unfamiliar, damaged, duplicated or linked to another package, the app refuses to overwrite it. Updates stage on the destination volume outside Community and roll back on a failed swap.
 
@@ -153,4 +153,7 @@ When **Flap transitions** is enabled, the whole-number speed labels occupy a sin
 Enable **Highlight suggested flap** in Settings to highlight the different flap band suggested by the current IAS in the full ribbon (light amber). The actual handle stays blue. It defaults off, and no highlight is shown on the ground, when the live handle/IAS or valid speeds are unavailable, outside the applicable range, or when the suggestion matches the actual band.
 
 ### App-wide display units
-Open **Settings > Display (app-wide preferences)** to choose preferred speed and altitude units. These preferences apply to all gliders, both panels and the profile editor. The Profiles section has no per-glider unit selector; native profile JSON remains in metres per second.
+Open **Settings > Display** to choose preferred speed and altitude units. These preferences apply to all gliders, both panels and the profile editor. The Profiles section has no per-glider unit selector; native profile JSON remains in metres per second.
+
+### Desktop control window and Settings
+The main window and Settings expand to the available width and reflow on narrow windows. The main window displays simulator connection, detected aircraft, active profile and source, and whether the external panel is open. **Edit profiles** opens the detailed editor, while **Settings** opens three keyboard-accessible areas: **Display** (global units, display toggles, AGL and appearance), **In-sim Panel** (package and auto-hide), and **Profiles** (glider definitions and local adjustments). Switching between Settings areas does not save or discard profile edits. Panel rendering and data formats are unchanged.
