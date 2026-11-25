@@ -38,8 +38,8 @@ describe('grouped recommendation renders consistently',()=>{
    const desktop=await env.newPage('?seed=demo',{width:820,height:900});
    const cockpit=await env.browser.newPage({viewport:{width:350,height:500}});
    try{
-    await desktop.evaluate(({p,c,kg})=>{const w=(window as any).__flapHappy;Object.assign(w.sim.controls,{flapCount:8,flapIndex:c.index,iasKt:c.ias,totalWeightKg:kg,connected:true,inFlight:true,onGround:false});w.sim.tick(0);w.app.setActiveProfile(p,true);w.app.setSimpleFlap(true);w.app.setHighlightRecommended(true);},{p,c:current,kg:lightKg});
-    await cockpit.route('**/api/state',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ready:true,profile:p,sample:sample({flapCount:8,flapIndex:current.index,iasKt:current.ias,totalWeightKg:lightKg}),receivedAt:Date.now(),ballast:0,units:'kmh',height:'ft',agl:defaultSettings().agl,zoom:1,simpleFlap:simple,highlightRecommended:true,showTransitions:true})}));
+    await desktop.evaluate(({p,c,kg})=>{const w=(window as any).__flapHappy;Object.assign(w.sim.controls,{flapCount:8,flapIndex:c.index,iasKt:c.ias,totalWeightKg:kg,connected:true,inFlight:true,onGround:false});w.sim.tick(0);w.app.setActiveProfile(p,true);w.app.setGroupHiddenFlapLabels(true);w.app.setSimpleFlap(true);w.app.setHighlightRecommended(true);},{p,c:current,kg:lightKg});
+    await cockpit.route('**/api/state',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ready:true,profile:p,sample:sample({flapCount:8,flapIndex:current.index,iasKt:current.ias,totalWeightKg:lightKg}),receivedAt:Date.now(),ballast:0,units:'kmh',height:'ft',agl:defaultSettings().agl,zoom:1,simpleFlap:simple,highlightRecommended:true,showTransitions:true,groupHiddenFlapLabels:true})}));
     await cockpit.goto(env.url+'panel.html');
     for(const mode of [true,false]){
      simple=mode;
@@ -57,15 +57,15 @@ describe('grouped recommendation renders consistently',()=>{
 
 
 describe('low IAS guidance on both renderer paths',()=>{
- for(const kind of ['native','wsg'] as const)for(const stall of [true,false]){
-  it(`${kind}, ${stall?'stall IAS':'visual-only floor'}`,async()=>{
+ for(const kind of ['native','wsg'] as const)for(const stall of [true,false])for(const showGroup of [true,false]){
+  it(`${kind}, ${stall?'stall IAS':'visual-only floor'}, labels ${showGroup}`,async()=>{
    const {p,floor}=lowerBoundCases(kind,stall);
    let ias=floor-0.1,index=3,simple=false,highlight=true;
    const desktop=await env.newPage('?seed=demo',{width:820,height:900});
    const cockpit=await env.browser.newPage({viewport:{width:350,height:500}});
    try{
-    await desktop.evaluate(({p,ias,kg})=>{const w=(window as any).__flapHappy;w.app.setActiveProfile(p,true);Object.assign(w.sim.controls,{flapCount:8,flapIndex:3,iasKt:ias,totalWeightKg:kg,connected:true,inFlight:true,onGround:false});w.sim.tick(0);w.app.setSimpleFlap(false);w.app.setHighlightRecommended(true);},{p,ias,kg:lightKg});
-    await cockpit.route('**/api/state',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ready:true,profile:p,sample:sample({flapCount:8,flapIndex:index,iasKt:ias,totalWeightKg:lightKg}),receivedAt:Date.now(),ballast:0,units:'kt',height:'ft',agl:defaultSettings().agl,zoom:1,simpleFlap:simple,highlightRecommended:highlight,showTransitions:true})}));
+    await desktop.evaluate(({p,ias,kg,showGroup})=>{const w=(window as any).__flapHappy;w.app.setActiveProfile(p,true);w.app.setGroupHiddenFlapLabels(showGroup);Object.assign(w.sim.controls,{flapCount:8,flapIndex:3,iasKt:ias,totalWeightKg:kg,connected:true,inFlight:true,onGround:false});w.sim.tick(0);w.app.setSimpleFlap(false);w.app.setHighlightRecommended(true);},{p,ias,kg:lightKg,showGroup});
+    await cockpit.route('**/api/state',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ready:true,profile:p,sample:sample({flapCount:8,flapIndex:index,iasKt:ias,totalWeightKg:lightKg}),receivedAt:Date.now(),ballast:0,units:'kt',height:'ft',agl:defaultSettings().agl,zoom:1,simpleFlap:simple,highlightRecommended:highlight,showTransitions:true,groupHiddenFlapLabels:showGroup})}));
     await cockpit.goto(env.url+'panel.html');
     for(const mode of [false,true]){
      simple=mode;await desktop.evaluate(v=>(window as any).__flapHappy.app.setSimpleFlap(v),simple);
@@ -73,7 +73,7 @@ describe('low IAS guidance on both renderer paths',()=>{
       ias=floor+offset;index=handle;highlight=show;
       await desktop.evaluate(({ias,index,highlight})=>{const w=(window as any).__flapHappy;w.app.setHighlightRecommended(highlight);Object.assign(w.sim.controls,{flapIndex:index,iasKt:ias});w.sim.tick(0);},{ias,index,highlight});
       for(const [page,prefix] of [[desktop,'.fh-display '],[cockpit,'']] as const){
-       const rec=index===3&&(simple||highlight);const group=kind==='wsg'?'L\u20136\u20135':'L-6-5';
+       const rec=index===3&&(simple||highlight);const group=showGroup?(kind==='wsg'?'L\u20136\u20135':'L-6-5'):'5';
        await page.waitForFunction(({prefix,simple,index,rec,low,group})=>{
         const q=(s:string)=>document.querySelector(prefix+s);
         if(simple)return q('.fh-simple-actual')?.textContent===(index===3?'4':'5')&&(rec?q('.fh-simple-pill')?.textContent===group&&q('.fh-simple-arrow.on')?.classList.contains('slower'):![...document.querySelectorAll(prefix+'.fh-simple-pill')].some(e=>e.getClientRects().length));

@@ -12,7 +12,7 @@ describe('grouped AS33 recommendation uses display groups, not raw flap-row inde
    const validation=validateProfile(p,{liveHandleCount:8});expect(validation.ok).toBe(true);
    for(const c of groupedCases(p)){
     const s=sample({flapCount:8,flapIndex:c.index,iasKt:c.ias,totalWeightKg:lightKg});
-    const m=buildDisplayModel({profile:p,validation,sample:s,link:'live',manualBallast:0,ias:c.ias,flap:new CurrentFlapResolver().resolve(p,s,1000)});
+    const m=buildDisplayModel({groupHiddenFlapLabels:true,profile:p,validation,sample:s,link:'live',manualBallast:0,ias:c.ias,flap:new CurrentFlapResolver().resolve(p,s,1000)});
     expect(m.simple.current,c.name).toBe(c.actual);
     expect(m.cells[m.currentRow!]?.label,c.name).toBe(c.group);
     if(c.group!==c.actual)expect(m.badge,c.name).toEqual({kind:'mapped',text:c.actual});
@@ -25,19 +25,19 @@ describe('grouped AS33 recommendation uses display groups, not raw flap-row inde
 
 
 describe('low IAS remains independent of flap recommendations',()=>{
- for(const kind of ['native','wsg'] as const)for(const stall of [true,false]){
-  it(`${kind} with ${stall?'true stall':'visual floor'} recommends slowest group below/at/above`,()=>{
+ for(const kind of ['native','wsg'] as const)for(const stall of [true,false])for(const group of [true,false]){
+  it(`${kind} with ${stall?'true stall':'visual floor'}, labels ${group} recommends slowest group below/at/above`,()=>{
    const {p,floor}=lowerBoundCases(kind,stall);
    const model=(ias:number,index:number,over:Partial<ReturnType<typeof sample>>={},link:'live'|'nodata'='live')=>{
     const s=sample({flapCount:8,flapIndex:index,iasKt:ias,totalWeightKg:lightKg,...over});
     const validation=validateProfile(p,{liveHandleCount:s.flapCount});
-    return buildDisplayModel({profile:p,validation,sample:s,link,manualBallast:0,ias,flap:new CurrentFlapResolver().resolve(p,s,1000)});
+    return buildDisplayModel({groupHiddenFlapLabels:group,profile:p,validation,sample:s,link,manualBallast:0,ias,flap:new CurrentFlapResolver().resolve(p,s,1000)});
    };
    for(const delta of [-0.1,0,0.1]){
     const m=model(floor+delta,3);
     expect(m.boundaries![0]).toBeCloseTo(floor,8);
     expect(m.simple.current).toBe('4');
-    expect(m.simple.suggestion).toEqual({label:kind==='wsg'?'L\u20136\u20135':'L-6-5',direction:'slower'});
+    expect(m.simple.suggestion).toEqual({label:group?(kind==='wsg'?'L\u20136\u20135':'L-6-5'):'5',direction:'slower'});
     expect(m.recommendedRow).toBe(0);
     expect(m.alert).toBe(stall&&delta<0?'LOW':null);
     if(delta<0){expect(m.marker.pos).toBe(0);expect(m.marker.region).toBe('below');}
