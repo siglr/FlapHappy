@@ -55,6 +55,7 @@ export class SettingsView {
   private saveState: HTMLElement;
   private dirty = false;
 
+  private displayBox:HTMLElement;
   private profileBar: HTMLElement;
   private banner: HTMLElement;
   private table: HTMLElement;
@@ -71,6 +72,7 @@ export class SettingsView {
   constructor(private app: App) {
     this.saveBtn = h('button', { class: 'fh-btn fh-save', type: 'button', disabled: true, onclick: () => void this.saveNow() }, 'Save') as HTMLButtonElement;
     this.saveState = h('span', { class: 'fh-savestate' });
+    this.displayBox=h('div',{class:'fh-display-settings'});
     this.profileBar = h('div', { class: 'fh-pbar' });
     this.banner = h('div', { class: 'fh-banner' });
     this.table = h('div', { class: 'fh-table' });
@@ -86,6 +88,7 @@ export class SettingsView {
       'div',
       { class: 'fh-settings' },
       h('div', { class: 'fh-sethead' }, back, h('div', { class: 'fh-settitle' }, 'Settings'), this.saveBtn, this.saveState),
+      this.displayBox,
       this.profileBar,
       this.banner,
       this.table,
@@ -236,8 +239,9 @@ export class SettingsView {
 
   private renderProfileBar(): void {
     const app = this.app;
-    const previousOptions = this.profileBar.querySelector<HTMLDetailsElement>('.fh-display-options');
+    const previousOptions = this.displayBox.querySelector<HTMLDetailsElement>('.fh-display-options');
     if (previousOptions) this.displayOptionsOpen = previousOptions.open;
+    clear(this.displayBox);
     clear(this.profileBar);
     const files = app.host.capabilities.files;
     const unit = app.settings.units === 'kmh' ? 'kmh' : 'kt';
@@ -304,7 +308,7 @@ export class SettingsView {
         customFile, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null),
       newForm);
     this.profileBar.appendChild(profile);
-    this.profileBar.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, 'Display preferences'), toggles));
+    this.displayBox.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, 'Display (app-wide preferences)'), h('div',{class:'fh-hint'},'These units apply to every glider and both panels.'),toggles));
     if (!this.draft) this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Create a local profile or open a JSON file to start.'));
   }
 

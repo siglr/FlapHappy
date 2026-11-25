@@ -151,3 +151,6 @@ When **Flap transitions** is enabled, the whole-number speed labels occupy a sin
 
 ### Recommendation highlight
 Enable **Highlight suggested flap** in Settings to highlight the different flap band suggested by the current IAS in the full ribbon (light amber). The actual handle stays blue. It defaults off, and no highlight is shown on the ground, when the live handle/IAS or valid speeds are unavailable, outside the applicable range, or when the suggestion matches the actual band.
+
+### App-wide display units
+Open **Settings > Display (app-wide preferences)** to choose preferred speed and altitude units. These preferences apply to all gliders, both panels and the profile editor. The Profiles section has no per-glider unit selector; native profile JSON remains in metres per second.
