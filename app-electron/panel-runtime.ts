@@ -158,6 +158,7 @@ export class PanelRuntime {
   setSourceKind(kind:string):void {
     if(this.sourceKind===kind)return;
     this.sourceKind=kind;this.resetSample();
+    this.store.setDemoExamples?.(kind==='simulated');
     void this.refresh().catch(()=>{});
   }
   resetSample(): void {
