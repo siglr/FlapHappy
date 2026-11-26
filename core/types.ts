@@ -105,9 +105,11 @@ export interface Settings {
   profile_selection: { mode: 'auto' | 'manual'; manualId: string | null; fallbackId: string | null };
   ballast_by_profile: Record<string, number>;
   /** How speeds are shown. Profile files are stored in metres per second. */
-  units: 'kt' | 'kmh';
+  units: import('./units').SpeedUnit;
   /** How height above ground is shown. */
   height: 'ft' | 'm';
+  weight_unit: import('./units').WeightUnit;
+  wind_unit: import('./units').WindUnit;
   /** AGL bar ends and the green band, in feet. */
   agl: { bottom_m: number; top_m: number; low_m: number; high_m: number };
   ui: {

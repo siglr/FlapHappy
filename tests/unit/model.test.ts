@@ -326,7 +326,8 @@ describe('ballast state, settings and selection', () => {
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, units: 'kmh' }).units).toBe('kmh');
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, units: 'kmh' }).height).toBe('m');
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, units: 'kmh', height: 'ft' }).height).toBe('ft');
-    expect(normalizeSettings({ schema: SETTINGS_SCHEMA, units: 'mph' }).units).toBe('kt');
+    expect(normalizeSettings({ schema: SETTINGS_SCHEMA, units: 'mph' }).units).toBe('mph');
+    expect(normalizeSettings({ schema: SETTINGS_SCHEMA, units: 'bad' }).units).toBe('kt');
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, agl: { bottom_m: 0, top_m: 99999, low_m: 'x' } }).agl).toEqual({ bottom_m: 0, top_m: 18288, low_m: 121.92, high_m: 243.84 });
     expect(normalizeSettings({ schema: SETTINGS_SCHEMA, agl: { bottom_ft: 200, top_ft: 1000 } }).agl.bottom_m).toBe(60.96);
     expect(normalizeSettings({ schema: 'flaphappy.settings/0', units: 'kmh' })).toEqual(defaultSettings());

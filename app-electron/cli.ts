@@ -1,3 +1,4 @@
+import type { DisplayUnitOverrides } from '../core/units';
 export interface CliOptions {
   source: 'simconnect' | 'simulated' | 'replay';
   dev: boolean;
@@ -11,6 +12,7 @@ export interface CliOptions {
   quit: boolean;
   smoke: boolean;
   screenshot: string | null;
+  displayUnits: DisplayUnitOverrides;
 }
 
 /** Parses `--key=value` and `--key value` style arguments (anything else is ignored). */
@@ -23,7 +25,7 @@ export function parseCli(argv: string[]): CliOptions {
     if (eq > 0) kv[a.slice(2, eq)] = a.slice(eq + 1);
     else {
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith('--') && ['record', 'trace', 'source', 'speed', 'protocol', 'user-data', 'screenshot'].indexOf(a.slice(2)) >= 0) {
+      if (next !== undefined && !next.startsWith('--') && ['record', 'trace', 'source', 'speed', 'protocol', 'user-data', 'screenshot', 'airspeed-unit','weight-unit','altitude-unit','wind-unit'].indexOf(a.slice(2)) >= 0) {
         kv[a.slice(2)] = next;
         i++;
       } else kv[a.slice(2)] = 'true';
@@ -32,7 +34,14 @@ export function parseCli(argv: string[]): CliOptions {
   const src = kv.source;
   const proto = kv.protocol;
   const speed = Number(kv.speed);
+  const displayUnits:DisplayUnitOverrides={};
+  const air=kv['airspeed-unit'],mass=kv['weight-unit'],alt=kv['altitude-unit'],wind=kv['wind-unit'];
+  if(air==='kt'||air==='kmh'||air==='mph')displayUnits.units=air;
+  if(mass==='kg'||mass==='lb')displayUnits.weight_unit=mass;
+  if(alt==='ft'||alt==='m')displayUnits.height=alt;
+  if(wind==='kt'||wind==='mps')displayUnits.wind_unit=wind;
   return {
+    displayUnits,
     source: src === 'simulated' || src === 'replay' ? src : 'simconnect',
     dev: kv.dev === 'true' || src === 'simulated',
     record: kv.record && kv.record !== 'true' ? kv.record : null,

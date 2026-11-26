@@ -16,7 +16,11 @@ export interface CockpitState {
   receivedAt: number;
   /** Manual ballast fraction (ignored for profiles with valid loaded-weight anchors). */
   ballast: number;
-  units: 'kt' | 'kmh';
+  units: import('./units').SpeedUnit;
+  weightUnit?: import('./units').WeightUnit;
+  windUnit?: import('./units').WindUnit;
+  /** Session-only unit overrides supplied by a launcher. */
+  launchUnits?: import('./units').DisplayUnitOverrides;
   height: 'ft' | 'm';
   /** AGL bar ends and the green band, in feet. */
   agl: { bottom_m: number; top_m: number; low_m: number; high_m: number };

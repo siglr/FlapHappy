@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {createHash} from 'node:crypto';
+import {spawn} from 'node:child_process';
 import { SHOT_DIR } from './browser-env';
 import { makeProfile, sample } from '../unit/helpers';
 import { exportProfileJson, createBlankProfile } from '../../core/profile';
@@ -374,3 +375,41 @@ it.skipIf(!canRun)('Demo profile selection aligns routed flap count and weight, 
   await editor.locator('.fh-back').click();
  }finally{await app.close();}
 });
+
+
+it.skipIf(!canRun)('startup unit handoff applies to both panels and the running instance without rewriting saved standalone preferences',async()=>{
+ const ud=fs.mkdtempSync(path.join(os.tmpdir(),'fh-launch-units-'));
+ const fixture=makeProfile(3,{id:'units-fixture'});
+ fs.mkdirSync(path.join(ud,'profiles'));fs.writeFileSync(path.join(ud,'profiles',fixture.id+'.json'),exportProfileJson(fixture));
+ fs.writeFileSync(path.join(ud,'settings.json'),JSON.stringify({schema:'flaphappy.settings/1',units:'kmh',height:'ft',weight_unit:'kg',wind_unit:'auto',profile_selection:{mode:'manual',manualId:fixture.id,fallbackId:null}}));
+ let instance=await launch(ud,['--source=simulated','--airspeed-unit=mph','--weight-unit=lb','--altitude-unit=m','--wind-unit=mps']);
+ let browser:import('playwright-core').Browser|undefined;
+ const reLaunch=async(flags:string[])=>{
+   await new Promise<void>((resolve,reject)=>{const child=spawn(electronBin,[root,'--no-sandbox','--source=simulated','--user-data='+ud,...flags],{cwd:root,windowsHide:true,stdio:'ignore'});child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(Error('second instance exit '+code)));});
+ };
+ try{
+  let {app,page}=instance;const panel=await openExternal(app,page);
+  const {chromium}=await import('playwright-core');const {chromePath}=await import('./browser-env');browser=await chromium.launch({executablePath:chromePath(),args:['--no-sandbox']});const cockpit=await browser.newPage();await cockpit.goto(panelUrl+'/panel.html');
+  const surfaces=[panel,cockpit];await page.locator('.fh-dev-iasnum').fill('100');await page.locator('.fh-dev-weight').fill('400');
+  await waitUntil(async()=>{const s=await getFeed();return s.units==='mph'&&s.height==='m'&&s.weightUnit==='lb'&&s.windUnit==='mps'&&s.sample.iasKt===100;},'startup units');
+  for(const surface of surfaces)await surface.waitForFunction(()=>document.querySelector('.fh-readout')?.textContent==='115 mph'&&document.querySelector('.fh-sl-pct')?.textContent==='882 lb'&&document.querySelector('.fh-aglread')?.textContent?.endsWith(' m')&&document.querySelector('.fh-aglwindtext')?.textContent?.endsWith(' m/s'));
+  const created=app.waitForEvent('window');await page.click('.fh-main-settings');const editor=await created;await editor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');if(!await editor.locator('[data-unit-pref="units"]').first().isVisible())await editor.locator('.fh-display-options summary').click();
+  expect(await editor.locator('[data-unit-pref].on').allTextContents()).toEqual(['mph','m','lb','m/s']);expect(await editor.locator('[data-unit-pref]:disabled').count()).toBe(10);
+  await editor.getByRole('tab',{name:'Profiles'}).click();await editor.locator('.fh-profile-select').selectOption(fixture.id);const light=editor.locator('[data-path="weight_kg.light"]');await light.waitFor();expect(await light.inputValue()).toBe('881.85');expect(await light.getAttribute('aria-label')).toContain('(lb)');await light.fill('1100');
+  await reLaunch(['--airspeed-unit=kt','--weight-unit=kg','--altitude-unit=ft','--wind-unit=kt']);await waitUntil(async()=>{const s=await getFeed();return s.units==='kt'&&s.height==='ft'&&s.weightUnit==='kg'&&s.windUnit==='kt';},'second instance changes');
+  expect(await light.inputValue()).toBe('1100');expect(await light.getAttribute('aria-label')).toContain('(lb)');expect(await editor.locator('.fh-launch-units-changed').isVisible()).toBe(true);
+  for(const surface of surfaces)await surface.waitForFunction(()=>document.querySelector('.fh-readout')?.textContent==='100 kt'&&document.querySelector('.fh-sl-pct')?.textContent==='400 kg'&&document.querySelector('.fh-aglread')?.textContent?.endsWith(' ft')&&document.querySelector('.fh-aglwindtext')?.textContent?.endsWith(' kt'));
+  await editor.locator('.fh-save').click();await editor.waitForFunction(()=>document.querySelector('.fh-savestate')?.textContent==='Saved and applied');const stored=JSON.parse(fs.readFileSync(path.join(ud,'profiles',fixture.id+'.json'),'utf8'));expect(stored.weight_kg.light).toBeCloseTo(1100*0.45359237,9);
+  await editor.locator('.fh-back').click();await reLaunch(['--airspeed-unit=bad']);await reLaunch([]);expect(await getFeed()).toMatchObject({units:'kt',height:'ft',weightUnit:'kg',windUnit:'kt'});
+  expect(settingsOnDisk(ud)).toMatchObject({units:'kmh',height:'ft',weight_unit:'kg',wind_unit:'auto'});
+  await browser.close();browser=undefined;await app.close();instance=await launch(ud);({app,page}=instance);await waitUntil(async()=>(await getFeed()).units==='kmh');expect(await getFeed()).toMatchObject({units:'kmh',height:'ft',weightUnit:'kg',windUnit:'auto'});
+  const second=await openExternal(app,page);await second.waitForFunction(()=>document.querySelector('.fh-readout')?.textContent?.endsWith(' km/h')&&document.querySelector('.fh-aglwindtext')?.textContent?.endsWith(' km/h'));
+  const next=app.waitForEvent('window');await page.click('.fh-main-settings');const standaloneEditor=await next;await standaloneEditor.waitForSelector('.fh-settings-tab-display[aria-selected="true"]');if(!await standaloneEditor.locator('[data-unit-pref="units"]').first().isVisible())await standaloneEditor.locator('.fh-display-options summary').click();expect(await standaloneEditor.locator('[data-unit-pref]:disabled').count()).toBe(0);
+  const pick=async(pref:string,label:string)=>standaloneEditor.locator('[data-unit-pref="'+pref+'"]').filter({hasText:label}).click();
+  await pick('wind_unit','m/s');await waitUntil(async()=>(await getFeed()).windUnit==='mps');expect((await getFeed()).units).toBe('kmh');
+  await pick('units','mph');await pick('height','m');await pick('weight_unit','lb');await waitUntil(async()=>{const s=await getFeed();return s.units==='mph'&&s.height==='m'&&s.weightUnit==='lb'&&s.windUnit==='mps';});
+  await second.waitForFunction(()=>document.querySelector('.fh-readout')?.textContent?.endsWith(' mph')&&document.querySelector('.fh-aglwindtext')?.textContent?.endsWith(' m/s')&&document.querySelector('.fh-sl-pct')?.textContent?.endsWith(' lb'));
+  await standaloneEditor.locator('.fh-back').click();await app.close();instance=await launch(ud);expect(await getFeed()).toMatchObject({units:'mph',height:'m',weightUnit:'lb',windUnit:'mps'});expect(settingsOnDisk(ud)).toMatchObject({units:'mph',height:'m',weight_unit:'lb',wind_unit:'mps'});
+
+ }finally{if(browser)await browser.close();await instance.app.close().catch(()=>{});fs.rmSync(ud,{recursive:true,force:true});}
+},45000);
