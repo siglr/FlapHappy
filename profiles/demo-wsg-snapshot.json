@@ -1,0 +1,268 @@
+{
+  "capturedUtc": "2026-11-26",
+  "catalogUrl": "https://wesimglide.org/api/flap-happy/catalog-v2.json",
+  "referenceUrls": {
+    "AS33-18-GF": "https://wesimglide.org/api/GetGliderReference.php?type=AS33-18-GF",
+    "AS33-15-GF": "https://wesimglide.org/api/GetGliderReference.php?type=AS33-15-GF",
+    "JS3-18-BC": "https://wesimglide.org/api/GetGliderReference.php?type=bc_js3_18m"
+  },
+  "catalog": {
+    "schema": "wsg.flaphappy.catalog/2",
+    "revision": 27,
+    "profiles": [
+      {
+        "schema": "wsg.flaphappy.profile/1",
+        "variantKey": "AS33-18-GF",
+        "handleCount": 8,
+        "lightWeightKg": 485,
+        "heavyWeightKg": 600,
+        "bands": [
+          {
+            "label": "L",
+            "handleIndex": 7,
+            "lightStartKt": 0,
+            "heavyStartKt": 0
+          },
+          {
+            "label": "6",
+            "handleIndex": 6,
+            "lightStartKt": 41.57883369330454,
+            "heavyStartKt": 46.43844492440605,
+            "excludeFromDisplay": true
+          },
+          {
+            "label": "5",
+            "handleIndex": 5,
+            "lightStartKt": 46.43844492440605,
+            "heavyStartKt": 52.36717062634989,
+            "excludeFromDisplay": true
+          },
+          {
+            "label": "N",
+            "handleIndex": 4,
+            "lightStartKt": 51.29805615550756,
+            "heavyStartKt": 57.77105831533477,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "4",
+            "handleIndex": 3,
+            "lightStartKt": 59.40388768898488,
+            "heavyStartKt": 68.03455723542116,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "3",
+            "handleIndex": 2,
+            "lightStartKt": 69.64794816414687,
+            "heavyStartKt": 78.84233261339092,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "2",
+            "handleIndex": 1,
+            "lightStartKt": 84.2267818574514,
+            "heavyStartKt": 93.94600431965442,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "1",
+            "handleIndex": 0,
+            "lightStartKt": 96.64794816414685,
+            "heavyStartKt": 106.36717062634987,
+            "excludeFromDisplay": false
+          }
+        ],
+        "lightStallIasKph": 66.996,
+        "heavyStallIasKph": 74.016
+      },
+      {
+        "schema": "wsg.flaphappy.profile/1",
+        "variantKey": "AS33-15-GF",
+        "handleCount": 8,
+        "lightWeightKg": 475,
+        "heavyWeightKg": 550,
+        "bands": [
+          {
+            "label": "L",
+            "handleIndex": 7,
+            "lightStartKt": 0,
+            "heavyStartKt": 0
+          },
+          {
+            "label": "6",
+            "handleIndex": 6,
+            "lightStartKt": 47.50755939524837,
+            "heavyStartKt": 51.29805615550756,
+            "excludeFromDisplay": true
+          },
+          {
+            "label": "5",
+            "handleIndex": 5,
+            "lightStartKt": 51.29805615550756,
+            "heavyStartKt": 55.6133909287257,
+            "excludeFromDisplay": true
+          },
+          {
+            "label": "N",
+            "handleIndex": 4,
+            "lightStartKt": 54.54427645788337,
+            "heavyStartKt": 59.40388768898488,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "4",
+            "handleIndex": 3,
+            "lightStartKt": 65.8768898488121,
+            "heavyStartKt": 71.80561555075595,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "3",
+            "handleIndex": 2,
+            "lightStartKt": 73.43844492440606,
+            "heavyStartKt": 79.36717062634989,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "2",
+            "handleIndex": 1,
+            "lightStartKt": 89.08639308855291,
+            "heavyStartKt": 95.03455723542116,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "1",
+            "handleIndex": 0,
+            "lightStartKt": 101.50755939524836,
+            "heavyStartKt": 107.99999999999999,
+            "excludeFromDisplay": false
+          }
+        ],
+        "lightStallIasKph": 70.992,
+        "heavyStallIasKph": 82.008
+      },
+      {
+        "schema": "wsg.flaphappy.profile/1",
+        "variantKey": "JS3-18-BC",
+        "handleCount": 6,
+        "lightWeightKg": 378,
+        "heavyWeightKg": 600,
+        "bands": [
+          {
+            "label": "L",
+            "handleIndex": 5,
+            "lightStartKt": 0,
+            "heavyStartKt": 0
+          },
+          {
+            "label": "5",
+            "handleIndex": 4,
+            "lightStartKt": 41.57883369330454,
+            "heavyStartKt": 50.75377969762418,
+            "excludeFromDisplay": true
+          },
+          {
+            "label": "4",
+            "handleIndex": 3,
+            "lightStartKt": 45.34989200863931,
+            "heavyStartKt": 56.70194384449244,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "3",
+            "handleIndex": 2,
+            "lightStartKt": 55.6133909287257,
+            "heavyStartKt": 67.49028077753779,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "2",
+            "handleIndex": 1,
+            "lightStartKt": 61.01727861771058,
+            "heavyStartKt": 75.5961123110151,
+            "excludeFromDisplay": false
+          },
+          {
+            "label": "1",
+            "handleIndex": 0,
+            "lightStartKt": 91.24406047516199,
+            "heavyStartKt": 107.99999999999999,
+            "excludeFromDisplay": false
+          }
+        ],
+        "lightStallIasKph": 69.012,
+        "heavyStallIasKph": 87.984
+      }
+    ]
+  },
+  "references": {
+    "AS33-15-GF": {
+      "ok": true,
+      "schemaVersion": 1,
+      "status": "matched",
+      "glider": {
+        "gliderKey": "AS33-15-GF",
+        "displayName": "Schleicher AS 33 Me 15m (GotFriends)",
+        "vneTasKph": 282,
+        "maxWeightKg": 550,
+        "hasFlaps": true,
+        "flapCount": 8,
+        "flapLabels": {
+          "1": "1",
+          "2": "2",
+          "3": "3",
+          "4": "4",
+          "5": "N",
+          "6": "5",
+          "7": "6",
+          "8": "L"
+        }
+      }
+    },
+    "AS33-18-GF": {
+      "ok": true,
+      "schemaVersion": 1,
+      "status": "matched",
+      "glider": {
+        "gliderKey": "AS33-18-GF",
+        "displayName": "Schleicher AS 33 Me 18m (GotFriends)",
+        "vneTasKph": 282,
+        "maxWeightKg": 600,
+        "hasFlaps": true,
+        "flapCount": 8,
+        "flapLabels": {
+          "1": "1",
+          "2": "2",
+          "3": "3",
+          "4": "4",
+          "5": "N",
+          "6": "5",
+          "7": "6",
+          "8": "L"
+        }
+      }
+    },
+    "JS3-18-BC": {
+      "ok": true,
+      "schemaVersion": 1,
+      "status": "matched",
+      "glider": {
+        "gliderKey": "JS3-18-BC",
+        "displayName": "Jonker JS3 Rapture 18m (B21-CalVR)",
+        "vneTasKph": 292,
+        "maxWeightKg": 600,
+        "hasFlaps": true,
+        "flapCount": 6,
+        "flapLabels": {
+          "1": "1",
+          "2": "2",
+          "3": "3",
+          "4": "4",
+          "5": "5",
+          "6": "L"
+        }
+      }
+    }
+  }
+}

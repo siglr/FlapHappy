@@ -3,13 +3,13 @@ import type { CockpitState } from '../core/cockpit';
 import type { ProfileStore, SimSample } from '../core/sim';
 import type { Profile, Settings } from '../core/types';
 import { initialBallast } from '../core/ballast';
-import { clamp01,sanitizeId } from '../core/profile';
+import { clamp01,sanitizeId,cloneProfile } from '../core/profile';
 import { aircraftBindingKey,resolveProfileChoice,selectProfileId } from '../core/select';
 import { usesManualBallast } from '../core/weight';
 import { wsgFlightProfile } from '../core/wsg-flight';
 import type { WsgAircraftMatch } from '../core/wsg-reference';
 import { validateProfile } from '../core/validate';
-import { PRESETS } from '../profiles';
+import { DEMO_EXAMPLES } from '../profiles';
 
 /** Main-process session for both panels. It does not depend on a renderer. */
 export class PanelRuntime {
@@ -142,7 +142,7 @@ export class PanelRuntime {
       if(!profile&&!id&&!noProfileMessage)noProfileMessage=this.title?'No profile for this aircraft. Choose a custom profile in Settings.':'Waiting for MSFS aircraft.';
     }else{id=selectProfileId(metas,settings,this.title);if(id)source='local';
       else if(this.sourceKind==='simulated'){
-        profile={...PRESETS[0].profile,id:'demo-as33-18m'};source='local';
+        profile=cloneProfile(DEMO_EXAMPLES[0]);source='local';
       }
     }
     try { if (id) profile = await this.store.load(id); } catch { /* unavailable */ }
