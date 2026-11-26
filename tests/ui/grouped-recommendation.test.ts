@@ -69,7 +69,7 @@ describe('low IAS guidance on both renderer paths',()=>{
     await cockpit.goto(env.url+'panel.html');
     for(const mode of [false,true]){
      simple=mode;await desktop.evaluate(v=>(window as any).__flapHappy.app.setSimpleFlap(v),simple);
-     for(const [offset,handle,show] of [[-0.1,3,true],[0.1,3,true],[-0.1,5,true],[-0.1,3,false]] as const){
+     for(const [offset,handle,show] of [[-0.1,3,true],[0.1,3,true],[-0.1,5,true],[-0.1,3,false],[25-floor,3,true],[24.5-floor,3,true],[19-floor,3,true],[-floor,3,true],[-floor,5,true],[-floor,3,false]] as const){
       ias=floor+offset;index=handle;highlight=show;
       await desktop.evaluate(({ias,index,highlight})=>{const w=(window as any).__flapHappy;w.app.setHighlightRecommended(highlight);Object.assign(w.sim.controls,{flapIndex:index,iasKt:ias});w.sim.tick(0);},{ias,index,highlight});
       for(const [page,prefix] of [[desktop,'.fh-display '],[cockpit,'']] as const){
@@ -78,11 +78,11 @@ describe('low IAS guidance on both renderer paths',()=>{
         const q=(s:string)=>document.querySelector(prefix+s);
         if(simple)return q('.fh-simple-actual')?.textContent===(index===3?'4':'5')&&(rec?q('.fh-simple-pill')?.textContent===group&&q('.fh-simple-arrow.on')?.classList.contains('slower'):![...document.querySelectorAll(prefix+'.fh-simple-pill')].some(e=>e.getClientRects().length));
         return q('.fh-cell.current')?.textContent===(index===3?'4':group)&&(rec?q('.fh-cell.recommended')?.textContent===group:!q('.fh-cell.recommended'))&&q('.fh-readout')?.classList.contains('low')===low;
-       },{prefix,simple,index,rec,low:stall&&offset<0,group});
+       },{prefix,simple,index,rec,low:stall&&offset<0&&ias>=25,group});
       }
      }
     }
    }finally{await desktop.close();await cockpit.close();}
-  },30000);
+  },45000);
  }
 });

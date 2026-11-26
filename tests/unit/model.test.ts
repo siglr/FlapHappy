@@ -27,7 +27,8 @@ describe('display model', () => {
     expect(at(94)).toEqual({ current: 'N', suggestion: { label: '4-3', direction: 'faster' } });
     expect(at(82)).toEqual({ current: 'N', suggestion: null });
     expect(at(88).suggestion).toEqual({ label: '4-3', direction: 'faster' });
-    expect(at(20).suggestion).toBeNull();
+    expect(at(20).suggestion).toEqual({label:'L',direction:'slower'});
+    expect(at(0).suggestion).toEqual({label:'L',direction:'slower'});
     expect(at(200).suggestion).toBeNull();
   });
 
@@ -146,6 +147,10 @@ describe('display model', () => {
     expect(m.barVisible).toBe(true);
     expect(m.edges).toEqual([0, 1]);
     expect(m.marker.pos).toBeCloseTo(0.5, 5);
+    for(const speed of [19,0]){
+      const low=model(p,sample({iasKt:speed,flapCount:0,flapIndex:0}));
+      expect(low.recommendedRow).toBeNull();expect(low.simple.suggestion).toBeNull();
+    }
   });
 
   it('shows raw IAS in the readout and the smoothed value drives the marker', () => {

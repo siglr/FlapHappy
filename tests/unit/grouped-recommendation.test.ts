@@ -45,7 +45,18 @@ describe('low IAS remains independent of flap recommendations',()=>{
    }
    expect(model(floor-0.1,3,{onGround:true}).recommendedRow).toBeNull();
    expect(model(floor-0.1,3,{},'nodata').recommendedRow).toBeNull();
-   expect(model(24,3).recommendedRow).toBeNull();
+   for(const speed of [25,24.5,19,0]){
+    const low=model(speed,3);expect(low.recommendedRow).toBe(0);
+    expect(low.simple.suggestion?.label).toBe(group?(kind==='wsg'?'L\u20136\u20135':'L-6-5'):'5');
+    expect(low.simple.suggestion?.direction).toBe('slower');
+    expect(model(speed,5).recommendedRow).toBeNull();
+    if(speed<25)expect(low.marker.greyed).toBe(true);
+    expect(model(speed,3,{onGround:true}).simple.suggestion).toBeNull();
+   }
+   expect(model(-1,3).recommendedRow).toBeNull();
+   expect(model(0,3,{iasKt:null}).recommendedRow).toBeNull();
+   expect(model(0,3,{iasKt:NaN}).recommendedRow).toBeNull();
+   expect(model(0,3,{},'nodata').recommendedRow).toBeNull();
    if(kind==='wsg')expect(model(floor-0.1,3,{flapCount:6}).recommendedRow).toBeNull();
   });
  }

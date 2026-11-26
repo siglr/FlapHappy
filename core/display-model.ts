@@ -193,10 +193,11 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     base.edges = columnEdges(boundaries);
     base.cellEdges = base.edges;
     base.ticks = boundaries.map((b) => formatTick(b, units));
-    // Recommendations use the same received IAS in desktop and cockpit; smoothing is visual only.
+    // Recommendations use the same received, nonnegative IAS in both hosts.
+    // The low-speed visual greying threshold is not a flap-guidance cutoff.
     const recommendationIas = sample ? sample.iasKt : null;
     if (mappedRow !== null && sample && sample.onGround !== true &&
-        recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= GROUND_SPEED_KT) {
+        recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= 0) {
       let row = bucketIndex(recommendationIas, boundaries);
       // The lower scale edge is not a recommendation cutoff; LOW is handled separately.
       if (recommendationIas < boundaries[0]) row = 0;
