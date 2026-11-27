@@ -1,3 +1,4 @@
+import type { DisplayUnitOverrides } from '../core/units';
 import { defaultSettings,forgetLocalProfile } from '../core/settings';
 import type { CockpitState } from '../core/cockpit';
 import type { ProfileStore, SimSample } from '../core/sim';
@@ -33,9 +34,22 @@ export class PanelRuntime {
     private notifyActive?:(state:CockpitState)=>void,
     kind='simulated',
     private loadWsgVariant?:(key:string)=>Promise<WsgAircraftMatch|null>,
+    private launchUnits:DisplayUnitOverrides={},
   ) {this.sourceKind=kind;}
 
   getState = (): CockpitState => this.state;
+
+  private effectiveDisplay(settings:Settings):Pick<CockpitState,'units'|'height'|'weightUnit'|'windUnit'|'launchUnits'> {
+    const u={...settings,...this.launchUnits};
+    return {units:u.units,height:u.height,weightUnit:u.weight_unit,windUnit:u.wind_unit,launchUnits:{...this.launchUnits}};
+  }
+
+  async setLaunchUnits(units:DisplayUnitOverrides):Promise<void>{
+    if(!Object.keys(units).length)return;
+    this.launchUnits={...this.launchUnits,...units};
+    this.state={...this.state,...this.effectiveDisplay(await this.settings())};
+    this.notifyActive?.(this.state);
+  }
 
   async initialize(): Promise<void> {
     this.store.setDemoExamples?.(this.sourceKind==='simulated');
@@ -152,7 +166,7 @@ export class PanelRuntime {
     const ballast = profile ? initialBallast(profile, this.ballastByProfile[profile.id]).f : 0;
     const oldLvar = prior?.current_flap.lvar_name;
     const changed = prior?.id !== profile?.id || this.state.ballast !== ballast;
-    this.state = { ...this.state, ready: true, profile,profileSource:profile?source:'none',noProfileMessage:profile?undefined:noProfileMessage,detectedWsgVariant,aircraftTitle:this.title,aircraftBindingKey:this.binding, ballast, units: settings.units, height:settings.height, agl:settings.agl, zoom: settings.ui.zoom,showBallast:settings.ui.show_ballast,showAgl:settings.ui.show_agl,autoHideExternal:settings.ui.auto_hide_external,simpleFlap:settings.ui.simple_flap,showTransitions:settings.ui.show_transitions,groupHiddenFlapLabels:settings.ui.group_hidden_flap_labels,highlightRecommended:settings.ui.highlight_recommended,showWind:settings.ui.show_wind,barShading:settings.ui.bar_shading };
+    this.state = { ...this.state, ready: true, profile,profileSource:profile?source:'none',noProfileMessage:profile?undefined:noProfileMessage,detectedWsgVariant,aircraftTitle:this.title,aircraftBindingKey:this.binding, ballast, ...this.effectiveDisplay(settings), agl:settings.agl, zoom: settings.ui.zoom,showBallast:settings.ui.show_ballast,showAgl:settings.ui.show_agl,autoHideExternal:settings.ui.auto_hide_external,simpleFlap:settings.ui.simple_flap,showTransitions:settings.ui.show_transitions,groupHiddenFlapLabels:settings.ui.group_hidden_flap_labels,highlightRecommended:settings.ui.highlight_recommended,showWind:settings.ui.show_wind,barShading:settings.ui.bar_shading };
     if (oldLvar !== profile?.current_flap.lvar_name) this.setLvar(profile?.current_flap.lvar_name ?? null);
     if (changed && profile) this.notifyBallast(profile.id, ballast);
     this.notifyActive?.(this.state);

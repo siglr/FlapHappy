@@ -3,6 +3,7 @@ import { ballastReadout, snapFraction } from '../core/ballast';
 import type { BallastState } from '../core/ballast';
 import type { Profile } from '../core/types';
 import { h, setText } from './dom';
+import { kilogramsToWeight, type WeightUnit } from '../core/units';
 
 /**
  * Ballast slider: None (0) to Max (1). Click the track to set, drag with snap.
@@ -113,8 +114,8 @@ export class WeightIndicator {
       h('div', { class: 'fh-gr fh-sl-read' }, this.readout));
   }
 
-  render(state: WeightState): void {
-    setText(this.readout, state.kg === null ? '-- kg' : Math.round(state.kg) + ' kg');
+  render(state: WeightState,unit:WeightUnit='kg'): void {
+    setText(this.readout, (state.kg===null?'--':String(Math.round(kilogramsToWeight(state.kg,unit))))+' '+unit);
     const visible = state.fraction !== null;
     this.fill.style.display = this.thumb.style.display = visible ? '' : 'none';
     if (state.fraction !== null) {
@@ -134,7 +135,7 @@ export class WeightControl {
     this.ballast = new BallastSlider(onChange);
   }
 
-  render(profile: Profile | null, state: WeightState, manual: BallastState): void {
+  render(profile: Profile | null, state: WeightState, manual: BallastState,unit:WeightUnit='kg'): void {
     const useManual = usesManualBallast(profile);
     const row = useManual ? this.ballast.el : this.weight.el;
     if (this.el.firstChild !== row) {
@@ -144,7 +145,7 @@ export class WeightControl {
     if (useManual) this.ballast.render(profile, manual);
     else {
       this.ballast.deactivate();
-      this.weight.render(state);
+      this.weight.render(state,unit);
     }
   }
 }

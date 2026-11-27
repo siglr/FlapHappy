@@ -10,6 +10,6 @@ it('global speed and altitude controls are separate from Profiles and survive a 
  await page.getByRole('button',{name:'m',exact:true}).click();
  const select=page.locator('.fh-profile-select'),other=await select.locator('optgroup option').evaluateAll((els,current)=>els.find((e:any)=>e.value!==current)?.getAttribute('value'),await select.inputValue());
  expect(other).toBeTruthy();await select.selectOption(other!);
- expect(await page.locator('.fh-display-settings .fh-unitbtn.on').allTextContents()).toEqual(['km/h','m']);
+ expect(await page.locator('.fh-display-settings .fh-unitbtn.on').allTextContents()).toEqual(['km/h','m','kg','Follow airspeed']);
  await page.close();
 });

@@ -25,6 +25,7 @@ function windowIcon(): string | undefined {
 }
 
 const cli = parseCli(process.argv.slice(1));
+let launchUnits={...cli.displayUnits};
 const APP_NAME = 'Flap Happy';
 
 // Profile library lives in %APPDATA%/FlapHappy (profiles/*.json + settings.json).
@@ -339,13 +340,14 @@ if (!haveLock || cli.quit) {
     const requested = parseCli(argv);
     if (requested.quit) { app.quit(); return; }
     if (quitting) return;
-    void showDesktop().catch(e => console.error('Could not open Flap Happy', e));
+    launchUnits={...launchUnits,...requested.displayUnits};
+    void (async()=>{if(panelRuntime)await panelRuntime.setLaunchUnits(requested.displayUnits);await showDesktop();})().catch(e => console.error('Could not open Flap Happy', e));
   });
   app.whenReady().then(async () => {
     store = new FileProfileStore(app.getPath('userData'));
     await store.getSettings();
     registerIpc();
-    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),publicWsg.aircraft,publishPanelState,desiredSource(await store.getSettings()),publicWsg.variant);
+    panelRuntime = new PanelRuntime(store, (name) => source?.setLvarName?.(name), (profileId, f) => send('panel:ballast', { profileId, f }),publicWsg.aircraft,publishPanelState,desiredSource(await store.getSettings()),publicWsg.variant,launchUnits);
     // Do not hold the visible control window for a saved online WSG choice.
     // The session publishes its state once the asynchronous lookup resolves.
     const initialization=panelRuntime.initialize();

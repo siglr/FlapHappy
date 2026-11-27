@@ -10,7 +10,7 @@ import {
   profileLabel,
   transitionName,
 } from '../core/profile';
-import { formatSpeedField, heightToMetres, heightUnitLabel, metresToHeight, unitLabel, unitToKnots, type SpeedUnit } from '../core/units';
+import { formatSpeedField, heightToMetres, heightUnitLabel, metresToHeight, unitLabel, unitToKnots, type SpeedUnit, type WeightUnit, type WindUnit, formatWeightField, weightToKilograms } from '../core/units';
 import { validateProfile } from '../core/validate';
 import type { WsgCatalog, WsgPublishedProfile } from '../core/wsg-catalog';
 import { mappingIdentity, resetWsgOverrides, resolveWsgOverrides, transitionIdentity, wsgStallContext, type WsgOverrides } from '../core/wsg-overrides';
@@ -72,6 +72,7 @@ export class SettingsView {
   private areaButtons:Partial<Record<SettingsArea,HTMLButtonElement>>={};
   private activeArea:SettingsArea='profiles';
   private dragStop: (() => void) | null = null;
+  private aglDisplayUnit:'ft'|'m'='ft';
   private aglInputs: HTMLInputElement[] = [];
   private aglUnits: HTMLElement[] = [];
 
@@ -232,7 +233,18 @@ export class SettingsView {
 
   private setUnits(unit: SpeedUnit): void {
     this.app.setSpeedUnit(unit);
+    this.refreshProfileUnits();
+  }
+
+  private refreshProfileUnits():void {
     this.renderProfileBar();
+    const staged=this.table.querySelector<HTMLElement>('.fh-wsg-adjustments[data-units-dirty="true"]');
+    if(staged){
+      // Sparse WSG edits are still in this form's original labeled units.
+      // Saving or reopening will re-render in the newly chosen preferences.
+      if(!staged.querySelector('.fh-unit-draft-note'))staged.prepend(h('div',{class:'fh-hint fh-unit-draft-note',role:'status'},'Unsaved adjustments keep their original units. Save them before switching to the new units.'));
+      return;
+    }
     this.renderTable();
     this.updateFieldStates();
   }
@@ -244,10 +256,20 @@ export class SettingsView {
   }
 
   private syncAglFields(): void {
-    const unit = this.app.settings.height === 'm' ? 'm' : 'ft';
+    const unit = this.app.displayUnits.height;
+    this.aglDisplayUnit=unit;
     const keys: Array<'bottom_m' | 'top_m' | 'low_m' | 'high_m'> = ['bottom_m', 'top_m', 'low_m', 'high_m'];
     for (let i = 0; i < this.aglInputs.length; i++) this.aglInputs[i].value = String(metresToHeight(this.app.settings.agl[keys[i]], unit));
     for (let i = 0; i < this.aglUnits.length; i++) setText(this.aglUnits[i], heightUnitLabel(unit));
+  }
+
+  /** A second launch can update live panels while a profile editor is open. Keep its existing draft in its labeled units. */
+  launchUnitsChanged():void {
+    const locked=this.app.launchUnits;
+    for(const button of Array.from(this.el.querySelectorAll<HTMLButtonElement>('[data-unit-pref]')))if(button.dataset.unitPref&&Object.prototype.hasOwnProperty.call(locked,button.dataset.unitPref))button.disabled=true;
+    let note=this.el.querySelector<HTMLElement>('.fh-launch-units-changed');
+    if(!note){note=h('div',{class:'fh-hint fh-launch-units-changed',role:'status'});this.el.insertBefore(note,this.el.firstChild);}
+    setText(note,'Launch units changed. Close and reopen Settings to refresh the displayed units. Existing edit fields keep their original labeled units.');
   }
 
   private renderAll(): void {
@@ -268,17 +290,19 @@ export class SettingsView {
     clear(this.displayBox);
     clear(this.profileBar);
     const files = app.host.capabilities.files;
-    const unit = app.settings.units === 'kmh' ? 'kmh' : 'kt';
-    const height = app.settings.height === 'm' ? 'm' : 'ft';
+    const {units:unit,height,weight_unit:weight,wind_unit:wind}=app.displayUnits;
+    const inherited=app.launchUnits;
     const unitBtn = (id: SpeedUnit, label: string) =>
-      h('button', { class: 'fh-btn fh-unitbtn' + (unit === id ? ' on' : ''), type: 'button', onclick: () => this.setUnits(id) }, label);
+      h('button', { class: 'fh-btn fh-unitbtn' + (unit === id ? ' on' : ''), type: 'button', 'data-unit-pref':'units', disabled:inherited.units!==undefined, onclick: () => this.setUnits(id) }, label);
     const heightBtn = (id: 'ft' | 'm', label: string) =>
-      h('button', { class: 'fh-btn fh-unitbtn' + (height === id ? ' on' : ''), type: 'button', onclick: () => this.setHeight(id) }, label);
+      h('button', { class: 'fh-btn fh-unitbtn' + (height === id ? ' on' : ''), type: 'button', 'data-unit-pref':'height', disabled:inherited.height!==undefined, onclick: () => this.setHeight(id) }, label);
+    const weightBtn=(id:WeightUnit)=>h('button',{class:'fh-btn fh-unitbtn'+(weight===id?' on':''),type:'button','data-unit-pref':'weight_unit',disabled:inherited.weight_unit!==undefined,onclick:()=>{app.setWeightUnit(id);this.refreshProfileUnits();}},id);
+    const windBtn=(id:WindUnit,label:string)=>h('button',{class:'fh-btn fh-unitbtn'+(wind===id?' on':''),type:'button','data-unit-pref':'wind_unit',disabled:inherited.wind_unit!==undefined,onclick:()=>{app.setWindUnit(id);this.renderProfileBar();}},label);
     const u = app.settings.ui;
     const sw = (cls: string, on: boolean, label: string, set: (v: boolean) => void, enabled = true) =>
       h('label', { class: 'fh-slide' + (enabled ? '' : ' off') }, h('input', { type: 'checkbox', class: cls, 'aria-label': label, checked: on, disabled: !enabled, onchange: (e: Event) => set((e.target as HTMLInputElement).checked) }), h('span', { class: 'fh-slidetrack' }, h('span', { class: 'fh-slideknob' })));
     const row = (label: string, control: HTMLElement, enabled = true) => h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' + (enabled ? '' : ' off') }, label), control);
-    const toggles = h('div', { class: 'fh-toggles' }, h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Speed'), h('span', { class: 'fh-units' }, unitBtn('kt', 'kt'), unitBtn('kmh', 'km/h'))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Altitude'), h('span', { class: 'fh-units fh-height' }, heightBtn('ft', 'ft'), heightBtn('m', 'm'))), row('Simple flap indicator', sw('fh-simple-flap', u.simple_flap, 'Simple flap indicator', (v) => { const focused = this.el.ownerDocument.activeElement?.classList.contains('fh-simple-flap'); app.setSimpleFlap(v); this.renderProfileBar(); if (focused) this.displayBox.querySelector<HTMLInputElement>('.fh-simple-flap')?.focus(); })), row('Group hidden flap labels', sw('fh-group-hidden-labels', u.group_hidden_flap_labels, 'Group hidden flap labels', (v) => app.setGroupHiddenFlapLabels(v))), row('Flap transitions', sw('fh-show-transitions', u.show_transitions, 'Flap transitions', (v) => app.setShowTransitions(v), !u.simple_flap), !u.simple_flap), row('Highlight suggested flap', sw('fh-highlight-recommended', u.highlight_recommended, 'Highlight suggested flap', (v)=>app.setHighlightRecommended(v), !u.simple_flap), !u.simple_flap), row('Weight / ballast bar', sw('fh-show-ballast', u.show_ballast, 'Weight / ballast bar', (v) => app.setShowBallast(v))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'AGL bar'), sw('fh-show-agl', u.show_agl, 'AGL bar', (v) => { app.setShowAgl(v); this.renderProfileBar(); }), h('span', { class: 'fh-unitlab fh-beside' + (u.show_agl ? '' : ' off') }, 'Wind speed'), sw('fh-show-wind', u.show_wind, 'Wind speed', (v) => app.setShowWind(v), u.show_agl)));
+    const toggles = h('div', { class: 'fh-toggles' }, h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Airspeed'), h('span', { class: 'fh-units' }, unitBtn('kt', 'kt'), unitBtn('kmh', 'km/h'),unitBtn('mph','mph'))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Altitude'), h('span', { class: 'fh-units fh-height' }, heightBtn('ft', 'ft'), heightBtn('m', 'm'))), row('Weight',h('span',{class:'fh-units'},weightBtn('kg'),weightBtn('lb'))),row('Wind units',h('span',{class:'fh-units'},windBtn('auto','Follow airspeed'),windBtn('kt','kt'),windBtn('mps','m/s'))), row('Simple flap indicator', sw('fh-simple-flap', u.simple_flap, 'Simple flap indicator', (v) => { const focused = this.el.ownerDocument.activeElement?.classList.contains('fh-simple-flap'); app.setSimpleFlap(v); this.renderProfileBar(); if (focused) this.displayBox.querySelector<HTMLInputElement>('.fh-simple-flap')?.focus(); })), row('Group hidden flap labels', sw('fh-group-hidden-labels', u.group_hidden_flap_labels, 'Group hidden flap labels', (v) => app.setGroupHiddenFlapLabels(v))), row('Flap transitions', sw('fh-show-transitions', u.show_transitions, 'Flap transitions', (v) => app.setShowTransitions(v), !u.simple_flap), !u.simple_flap), row('Highlight suggested flap', sw('fh-highlight-recommended', u.highlight_recommended, 'Highlight suggested flap', (v)=>app.setHighlightRecommended(v), !u.simple_flap), !u.simple_flap), row('Weight / ballast bar', sw('fh-show-ballast', u.show_ballast, 'Weight / ballast bar', (v) => app.setShowBallast(v))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'AGL bar'), sw('fh-show-agl', u.show_agl, 'AGL bar', (v) => { app.setShowAgl(v); this.renderProfileBar(); }), h('span', { class: 'fh-unitlab fh-beside' + (u.show_agl ? '' : ' off') }, 'Wind speed'), sw('fh-show-wind', u.show_wind, 'Wind speed', (v) => app.setShowWind(v), u.show_agl)));
     this.saveAsBtn = files ? h('button', { class: 'fh-btn fh-saveas', type: 'button', disabled: !!this.wsgPreview || !canSaveWeightMode(this.draft, this.weightMode), onclick: () => void this.saveAs() }, 'Save As...') as HTMLButtonElement : null;
     const ids = app.metas.filter(m=>!this.isDemo(m)).map(m => m.id);
     if (this.draft && ids.indexOf(this.draft.id) < 0) ids.push(this.draft.id);
@@ -337,7 +361,7 @@ export class SettingsView {
       profile.querySelector('.fh-prow')?.appendChild(this.deleteProfileBtn);
     }
     this.profileBar.appendChild(profile);
-    this.displayBox.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, this.app.info.mainWindow?'Units and flight display':'Display (app-wide preferences)'), h('div',{class:'fh-hint'},'These units apply to every glider and both panels.'),toggles));
+    this.displayBox.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, this.app.info.mainWindow?'Units and flight display':'Display (app-wide preferences)'), h('div',{class:'fh-hint'},'These units apply to every glider and both panels.'),Object.keys(inherited).length?h('div',{class:'fh-hint fh-inherited-units'},'Locked unit choices are inherited for this launch only; saved standalone choices are unchanged.'):null,toggles));
     if (!this.draft) this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Create a local profile or open a JSON file to start.'));
   }
 
@@ -443,7 +467,8 @@ export class SettingsView {
     const d = this.draft;
     if (!d) return;
     const n = d.flaps.length;
-    const unit = this.app.settings.units === 'kmh' ? 'kmh' : 'kt';
+    const unit = this.app.displayUnits.units;
+    const weight=this.app.displayUnits.weight_unit;
     const left = this.weightMode === 'live' ? 'Light' : 'No ballast';
     const right = this.weightMode === 'live' ? 'Heavy' : 'Max ballast';
     const storeSpeed = (text: string): number | null => {
@@ -464,9 +489,9 @@ export class SettingsView {
     mode.value = this.weightMode;
     ref.appendChild(h('div', { class: 'fh-erow' }, h('label', { class: 'fh-profile-title' }, 'Weight mode'), mode));
     ref.appendChild(columns('', left, right));
-    if (this.weightMode === 'live') ref.appendChild(h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, 'Flying weight (kg)'),
-      column(this.fieldInput('weight_kg.light', fmtNum(d.weight_kg.light), { cls: 'fh-speed', step: '1', label: 'Light flying weight (kg)', onInput: (t) => { d.weight_kg.light = numberOrNull(t); } })),
-      column(this.fieldInput('weight_kg.heavy', fmtNum(d.weight_kg.heavy), { cls: 'fh-speed', step: '1', label: 'Heavy flying weight (kg)', onInput: (t) => { d.weight_kg.heavy = numberOrNull(t); } }))));
+    if (this.weightMode === 'live') ref.appendChild(h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, 'Flying weight ('+weight+')'),
+      column(this.fieldInput('weight_kg.light', formatWeightField(d.weight_kg.light,weight), { cls: 'fh-speed', step: weight==='lb'?'0.01':'1', label: 'Light flying weight ('+weight+')', onInput: (t) => { const v=numberOrNull(t);d.weight_kg.light=v===null?null:weightToKilograms(v,weight); } })),
+      column(this.fieldInput('weight_kg.heavy', formatWeightField(d.weight_kg.heavy,weight), { cls: 'fh-speed', step: weight==='lb'?'0.01':'1', label: 'Heavy flying weight ('+weight+')', onInput: (t) => { const v=numberOrNull(t);d.weight_kg.heavy=v===null?null:weightToKilograms(v,weight); } }))));
     ref.appendChild(speedRow('Stall IAS (' + unitLabel(unit) + ')', 'fh-minrow', null, () => d.vs_min, 'vs_min', true));
     ref.appendChild(h('div', { class: 'fh-hint' }, this.weightMode === 'live' ? 'Both loaded weights are required; Light must be below Heavy. Stall IAS is optional; leave both blank to use a visual lower bound.' : 'No flying weights are required. Set the manual ballast slider in flight. Stall IAS is optional; leave both blank to use a visual lower bound.'));
     this.table.appendChild(ref);
@@ -514,14 +539,15 @@ export class SettingsView {
 
   /** Published baseline is read-only; personal adjustments are local and sparse. */
   private renderWsgPreview(p: WsgPublishedProfile): void {
-    const unit = this.app.settings.units === 'kmh' ? 'kmh' : 'kt';
+    const unit = this.app.displayUnits.units;
+    const weight=this.app.displayUnits.weight_unit;
     const speed = (kt: number | null) => kt === null ? 'Not published' : formatSpeedField(kt, unit);
     const cell = (v: string) => h('div', { class: 'fh-profile-value' }, v);
     const row = (name: string, l: string, r: string) => h('div', { class: 'fh-profile-grid' }, h('div', { class: 'fh-profile-title' }, name), cell(l), cell(r));
     this.table.appendChild(h('div', { class: 'fh-profile-card fh-wsg-preview' },
       h('div', { class: 'fh-subtitle' }, p.variantKey + ' — published WSG.org profile'),
       h('div', { class: 'fh-hint' }, 'Published baseline. Personal adjustments below are local; WSG profiles default to live weight.'),
-      row('', 'Light', 'Heavy'), row('Flying weight (kg)', String(p.lightWeightKg), String(p.heavyWeightKg)),
+      row('', 'Light', 'Heavy'), row('Flying weight ('+weight+')', formatWeightField(p.lightWeightKg,weight), formatWeightField(p.heavyWeightKg,weight)),
       row('Stall IAS (' + unitLabel(unit) + ')', speed(p.lightStallIasKph === null ? null : p.lightStallIasKph / 1.852), speed(p.heavyStallIasKph === null ? null : p.heavyStallIasKph / 1.852)),
       h('div', { class: 'fh-hint' }, 'The published VNE number (TAS) sets the ribbon upper edge only; it does not trigger an IAS warning. An explicit personal IAS limit remains separate.')));
     const transitions = h('div', { class: 'fh-profile-card fh-wsg-transitions' }, h('div', { class: 'fh-subtitle' }, 'Published transition IAS (' + unitLabel(unit) + ')'), row('From → To', 'Light', 'Heavy'));
@@ -540,15 +566,16 @@ export class SettingsView {
     const prior=app.settings.wsg_profile_overrides[p.variantKey];
     const current=resolveWsgOverrides(p,app.settings.wsg_profile_overrides);
     const box=h('div',{class:'fh-profile-card fh-wsg-adjustments'},h('div',{class:'fh-subtitle'},'Personal WSG adjustments'));
+    const markUnitsDirty=()=>{box.dataset.unitsDirty='true';};box.addEventListener('input',markUnitsDirty);box.addEventListener('change',markUnitsDirty);
     const status=h('div',{class:'fh-hint fh-wsg-adjustment-status',role:'status'},current.state==='ok'?'Leave an input blank to inherit its current WSG default. Saved edits stay on this device.':'Saved overrides do not match the current definition. Reset or review before editing.');
     box.appendChild(status);
     const mode=h('select',{class:'fh-in fh-wsg-ballast', 'aria-label':'Personal ballast mode'},h('option',{value:'inherit'},'WSG default (Live flying weight)'),h('option',{value:'manual'},'Manual ballast slider'),h('option',{value:'live'},'Live flying weight')) as HTMLSelectElement;
     mode.value=prior?.ballastMode??'inherit';
     box.appendChild(h('label',{class:'fh-profile-grid'},h('span',{class:'fh-profile-title'},'Ballast mode'),mode));
-    const unit=app.settings.units;
+    const unit=app.displayUnits.units,weight=app.displayUnits.weight_unit;
     type Numeric={original:number|null|undefined;initial:string;kind:'kg'|'kph'|'kt';edited:boolean};
     const numerics=new Map<HTMLInputElement,Numeric>();
-    const display=(v:number|null|undefined,kind:Numeric['kind'])=>v==null?'':kind==='kg'?String(v):formatSpeedField(kind==='kt'?v:v/1.852,unit);
+    const display=(v:number|null|undefined,kind:Numeric['kind'])=>v==null?'':kind==='kg'?formatWeightField(v,weight):formatSpeedField(kind==='kt'?v:v/1.852,unit);
     const number=(key:string,published:number|null,override:number|null|undefined,kind:Numeric['kind']='kg')=>{
       const initial=display(override,kind),el=h('input',{class:'fh-in fh-override-number',type:'number',min:'0',step:kind==='kg'?'any':'0.1',placeholder:published===null?'Not published':display(published,kind),value:initial,'aria-label':key,'data-wsg-override':key}) as HTMLInputElement;
       const meta:Numeric={original:override,initial,kind,edited:false};numerics.set(el,meta);
@@ -559,12 +586,12 @@ export class SettingsView {
       if(!meta.edited||el.value===meta.initial)return meta.original;
       if(!el.value.trim())return undefined;
       const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');
-      return meta.kind==='kg'?n:meta.kind==='kt'?unitToKnots(n,unit):unit==='kmh'?n:n*1.852;
+      return meta.kind==='kg'?weightToKilograms(n,weight):meta.kind==='kt'?unitToKnots(n,unit):unit==='kmh'?n:unitToKnots(n,unit)*1.852;
     };
     const l=number('lightWeightKg',p.lightWeightKg,prior?.lightWeightKg), r=number('heavyWeightKg',p.heavyWeightKg,prior?.heavyWeightKg);
     const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph,'kph'), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph,'kph');
     const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid fh-wsg-edit-row'},h('div',{class:'fh-profile-title'},name),...controls);
-    box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS ('+unitLabel(unit)+')',ls,rs));
+    box.appendChild(row('Flying weight ('+weight+')',l,r));box.appendChild(row('Stall IAS ('+unitLabel(unit)+')',ls,rs));
     box.appendChild(h('div',{class:'fh-hint'},'Stall IAS is optional and refers to the most positive landing flap and exact Light/Heavy weights, even if that flap is hidden. Without a valid pair, the lower ribbon edge is only a visual estimate.'));
     const confirmStall=h('input',{type:'checkbox',class:'fh-confirm-stall-context'}) as HTMLInputElement;
     const confirmRow=h('label',{class:'fh-check fh-confirm-stall-row',hidden:true},confirmStall,' Confirm these retained stall IAS values apply to the landing flap and selected reference weights.');box.appendChild(confirmRow);
@@ -804,11 +831,12 @@ export class SettingsView {
   }
 
   private globalAglControls():HTMLElement{
-    const height = this.app.settings.height === 'm' ? 'm' : 'ft';
+    const height = this.app.displayUnits.height;
+    this.aglDisplayUnit=height;
     this.aglInputs = [];
     this.aglUnits = [];
     const aglField = (label: string, key: 'bottom_m' | 'top_m' | 'low_m' | 'high_m') => {
-      const input = h('input', { class: 'fh-in', type: 'number', min: '0', step: '1', value: String(metresToHeight(this.app.settings.agl[key], height)), oninput: (e: Event) => { const v = numberOrNull((e.target as HTMLInputElement).value); if (v === null || v < 0) return; this.app.setAglEdge(key, heightToMetres(v, this.app.settings.height === 'm' ? 'm' : 'ft')); } }) as HTMLInputElement;
+      const input = h('input', { class: 'fh-in', type: 'number', min: '0', step: '1', value: String(metresToHeight(this.app.settings.agl[key], height)), oninput: (e: Event) => { const v = numberOrNull((e.target as HTMLInputElement).value); if (v === null || v < 0) return; this.app.setAglEdge(key, heightToMetres(v,this.aglDisplayUnit)); } }) as HTMLInputElement;
       const unitEl = h('span', { class: 'fh-pct' }, heightUnitLabel(height));
       this.aglInputs.push(input);
       this.aglUnits.push(unitEl);

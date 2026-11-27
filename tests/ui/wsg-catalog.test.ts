@@ -103,3 +103,28 @@ it('the complete WSG default (Show) label fits including dropdown arrow at defau
   for(const width of [760,506,400]){await page.setViewportSize({width,height:850});const measured=await page.locator('[aria-label="Transition 1 visibility"]').evaluate(el=>{const sel=el as HTMLSelectElement,style=getComputedStyle(sel),ctx=document.createElement('canvas').getContext('2d')!;ctx.font=style.font;return {label:sel.selectedOptions[0].textContent,available:sel.clientWidth,needed:ctx.measureText(sel.selectedOptions[0].textContent??'').width+parseFloat(style.paddingLeft)+parseFloat(style.paddingRight)+24};});expect(measured.label).toBe('WSG default (Show)');expect(measured.available).toBeGreaterThanOrEqual(measured.needed);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
  }finally{await page.close();}
 });
+
+
+it('shows WSG weights in lb and IAS in mph while saving canonical kg/knots/kph',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:900});try{
+  await page.evaluate(c=>{const a=(window as any).__flapHappy.app;a.setSpeedUnit('mph');a.setWeightUnit('lb');a.host.getPublishedWsgCatalog=async()=>c;},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  expect(await page.locator('.fh-wsg-preview').textContent()).toContain('Flying weight (lb)');expect(await page.locator('.fh-wsg-preview').textContent()).toContain(String(Math.round(485/0.45359237*100)/100));
+  const val=(key:string)=>page.locator('[data-wsg-override="'+key+'"]');await val('lightWeightKg').fill('1100');await val('heavyWeightKg').fill('1320');await val('transition 0 Light').fill('60.2');await val('transition 0 Heavy').fill('65.4');await val('transition 1 Light').fill('80.4');await val('transition 1 Heavy').fill('92.3');await val('lightStallIasKph').fill('40.2');await val('heavyStallIasKph').fill('45.3');
+  await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  const saved=await page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF']);expect(saved.lightWeightKg).toBeCloseTo(1100*0.45359237,10);expect(saved.heavyWeightKg).toBeCloseTo(1320*0.45359237,10);expect(saved.lightStallIasKph).toBeCloseTo(40.2*1.609344,10);expect(saved.heavyStallIasKph).toBeCloseTo(45.3*1.609344,10);expect((Object.values(saved.transitions)[0] as any).lightStartKt).toBeCloseTo(60.2*1.609344/1.852,10);expect(await val('lightWeightKg').inputValue()).toBe('1100');expect(await val('lightStallIasKph').inputValue()).toBe('40.2');
+ }finally{await page.close();}
+});
+
+
+it('does not discard a staged WSG adjustment when app-wide units change',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:900});try{
+  await page.evaluate(c=>{(window as any).__flapHappy.app.host.getPublishedWsgCatalog=async()=>c;},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  const field=page.locator('[data-wsg-override="transition 0 Light"]');await field.fill('51.2');
+  await page.locator('.fh-display-options summary').click();await page.locator('[data-unit-pref="units"]').filter({hasText:'mph'}).click();
+  expect(await field.inputValue()).toBe('51.2');expect(await page.locator('.fh-unit-draft-note').count()).toBe(1);
+  await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  const saved=await page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF']);expect((Object.values(saved.transitions)[0] as any).lightStartKt).toBe(51.2);expect(await field.inputValue()).toBe(String(Math.round(51.2*1.852/1.609344*10)/10));
+ }finally{await page.close();}
+});
