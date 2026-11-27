@@ -209,3 +209,8 @@ describe('row editing keeps N-1 transitions', () => {
     expect(q.transitions[0].max_ballast_kt).toBeCloseTo(52 * Math.sqrt(1.5), 1);
   });
 });
+
+it('preserves stored SI precision in both editor units without rounding to tenths of a knot internally',()=>{
+ const original=JSON.parse(exportProfileJson(makeProfile(3)));original.transitions[0].no_ballast_ms=26.27;
+ const parsed=normalizeProfile(original).profile!;expect(JSON.parse(exportProfileJson(parsed)).transitions[0].no_ballast_ms).toBe(26.27);
+});

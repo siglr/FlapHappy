@@ -9,6 +9,7 @@ import { ScenarioPlayer, scenarioDuration, type Scenario } from '../../adapters/
 import { ReplaySource, parseTraceJsonl } from '../../adapters/simulated/replay-source';
 import { parseCli } from '../../app-electron/cli';
 import { defaultSettings } from '../../core/settings';
+import { exportProfileJson } from '../../core/profile';
 import { makeProfile, sample } from './helpers';
 import { PRESETS } from '../../profiles';
 import { CurrentFlapResolver } from '../../core/flapmap';
@@ -36,7 +37,7 @@ describe('FileProfileStore (real JSON files)', () => {
     await a.save(p);
     expect(fs.existsSync(path.join(dir, 'profiles', 'as33-test.json'))).toBe(true);
     const b = new FileProfileStore(dir);
-    expect(await b.load('as33-test')).toEqual(p);
+    expect(exportProfileJson(await b.load('as33-test'))).toEqual(exportProfileJson(p));
     const list = await b.list();
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: 'as33-test', incomplete: false, source: 'user' });
@@ -286,4 +287,13 @@ describe('command line', () => {
     expect(parseCli([])).toMatchObject({ source: 'simconnect', dev: false, record: null, protocol: 'SunRise', smoke: false });
     expect(parseCli(['--dev']).dev).toBe(true);
   });
+});
+
+it('Demo aligns only changed selections, clamps the handle and preserves deliberate count and weight faults',()=>{
+ const source=new SimulatedSource(),wide=makeProfile(8,{id:'wide'}),small=makeProfile(3,{id:'small'});source.controls.flapIndex=5;
+ expect(source.primeProfile(wide)).toBe(true);expect(source.snapshot()).toMatchObject({flapCount:8,flapIndex:5,totalWeightKg:400});
+ source.setFlapCount(6);source.controls.totalWeightKg=null;expect(source.primeProfile(wide)).toBe(false);expect(source.snapshot()).toMatchObject({flapCount:6,totalWeightKg:null});
+ expect(source.primeProfile(small)).toBe(true);expect(source.snapshot()).toMatchObject({flapCount:3,flapIndex:2,totalWeightKg:400});
+ source.setFlapCount(1);expect(source.primeProfile(small,true)).toBe(true);expect(source.snapshot()).toMatchObject({flapCount:3,flapIndex:0});
+ const subset=makeProfile(4,{id:'subset'});subset.handle_count=8;expect(source.primeProfile(subset)).toBe(true);expect(source.snapshot().flapCount).toBe(8);
 });

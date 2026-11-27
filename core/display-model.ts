@@ -78,6 +78,8 @@ export interface ModelInput {
   flap: CurrentFlap;
   /** Display unit. The profile's working speeds are knots. */
   units?: SpeedUnit;
+  /** Merge label text only; physical groups and trigger geometry always stay intact. */
+  groupHiddenFlapLabels?: boolean;
   /** Height unit for the AGL bar. */
   height?: HeightUnit;
   /** AGL bar ends and the green band, in feet. */
@@ -149,7 +151,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
   const fraction = interpolationFraction(profile, weight, inp.manualBallast);
   const boundaries = validation.ok && fraction !== null ? (profile.wsg?wsgBoundaries(profile,fraction):effectiveBoundaries(profile, fraction)) : null;
   base.mode = n === 0 ? 'noflaps' : validation.ok ? 'ok' : 'incomplete';
-  if (base.mode === 'incomplete') base.incompleteMessage = 'profile incomplete: open settings';
+  if (base.mode === 'incomplete') base.incompleteMessage = validation.errors.find(e=>e.code==='wsg-live-count')?.message??'profile incomplete: open settings';
   else if (fraction===null && weight.anchorsValid && weight.kg === null) base.incompleteMessage = 'Flying weight unavailable';
 
   // Exclusion merges neighboring cells but never changes the native handle.
@@ -158,11 +160,11 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     const current = live || link === 'paused' || link === 'nodata' ? flap.rowIndex : null;
     const group=current===null?-1:groups.members.findIndex(m=>m.includes(current));
     base.currentRow=group<0?null:group;
-    base.cells=groups.labels.map((label,i)=>({label,state:base.currentRow===i?'current':'other'}));
+    base.cells=groups.labels.map((label,i)=>({label:inp.groupHiddenFlapLabels===true?label:profile.flaps[groups.members[i][groups.members[i].length-1]].label,state:base.currentRow===i?'current':'other'}));
     if(base.currentRow!==null&&groups.members[base.currentRow].length>1&&flap.label)
       base.badge={kind:'mapped',text:flap.label};
   } else if (n > 0) {
-    base.cells=groups.labels.map(label=>({label,state:'other'}));
+    base.cells=groups.labels.map((label,i)=>({label:inp.groupHiddenFlapLabels===true?label:profile.flaps[groups.members[i][groups.members[i].length-1]].label,state:'other'}));
   }
 
   if(profile.wsg&&n>0&&validation.structureOk){
@@ -170,7 +172,7 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     const exact=live?flap.rowIndex:null;
     base.currentRow=exact===null?null:groups.members.findIndex(m=>m.includes(exact));
     if(base.currentRow===-1)base.currentRow=null;
-    base.cells=groups.labels.map((label,i)=>({label,state:base.currentRow===i?'current':'other'}));
+    base.cells=groups.labels.map((label,i)=>({label:inp.groupHiddenFlapLabels===true?label:profile.flaps[groups.members[i][groups.members[i].length-1]].label,state:base.currentRow===i?'current':'other'}));
     if(base.currentRow!==null&&groups.members[base.currentRow].length>1&&flap.label)base.badge={kind:'mapped',text:flap.label};
   }else if(profile.wsg){base.currentRow=null;base.cells=[];}
 
@@ -191,12 +193,14 @@ export function buildDisplayModel(inp: ModelInput): DisplayModel {
     base.edges = columnEdges(boundaries);
     base.cellEdges = base.edges;
     base.ticks = boundaries.map((b) => formatTick(b, units));
-    // Recommendations use the same received IAS in desktop and cockpit; smoothing is visual only.
+    // Recommendations use the same received, nonnegative IAS in both hosts.
+    // The low-speed visual greying threshold is not a flap-guidance cutoff.
     const recommendationIas = sample ? sample.iasKt : null;
     if (mappedRow !== null && sample && sample.onGround !== true &&
-        recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= GROUND_SPEED_KT) {
+        recommendationIas !== null && isFinite(recommendationIas) && recommendationIas >= 0) {
       let row = bucketIndex(recommendationIas, boundaries);
-      if(profile.vs_min.no_ballast_kt===null&&recommendationIas<boundaries[0])row=0;
+      // The lower scale edge is not a recommendation cutoff; LOW is handled separately.
+      if (recommendationIas < boundaries[0]) row = 0;
       if(profile.wsg&&recommendationIas>boundaries[boundaries.length-1])row=base.cells.length-1;
       if(profile.wsg&&profile.vne!==null&&recommendationIas>profile.vne)row=-1;
       const currentGroup=base.currentRow;

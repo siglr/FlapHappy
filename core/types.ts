@@ -86,6 +86,8 @@ export interface ProfileMeta {
   incomplete: boolean;
   match: string[];
   source: 'user' | 'preset';
+  /** True only for in-memory examples, never for a file on disk. */
+  virtual?: boolean;
   error?: string;
 }
 
@@ -125,6 +127,7 @@ export interface Settings {
     auto_hide_external: boolean;
     /** The transition speeds under the flap row. */
     show_transitions: boolean;
+    group_hidden_flap_labels: boolean;
     highlight_recommended: boolean;
     /** The wind speed drawn on the AGL bar. */
     show_wind: boolean;

@@ -75,3 +75,18 @@ it('upgrades old auto-seeded user profiles, including an unchanged starter and a
  expect(demo.getState()).toMatchObject({profile:{id:'demo-js3',source:'preset'}});
  await demo.flush();await assertPreserved(demoStore);
 });
+
+it('deletes a saved local profile and only its references, preserving a recovery copy and virtual examples',async()=>{
+ const root=temp(),store=new FileProfileStore(root);
+ const target=makeProfile(3,{id:'demo-as33-18m'}),other=makeProfile(2,{id:'other'});
+ await store.save(target);await store.save(other);
+ const settings=await store.getSettings();settings.last_profile_id=target.id;settings.profile_selection={mode:'manual',manualId:target.id,fallbackId:target.id};settings.active_by_title={one:target.id,two:other.id};settings.ballast_by_profile={[target.id]:.3,[other.id]:.7};await store.setSettings(settings);
+ const runtime=new PanelRuntime(store,()=>{},()=>{},undefined,undefined,'simulated');await runtime.initialize();
+ expect((await store.list()).find(m=>m.id===target.id)?.virtual).toBeUndefined();
+ await expect(runtime.removeLocalProfile('demo-js3')).rejects.toThrow('Only saved local');
+ await expect(runtime.removeLocalProfile('WSG:OTHER')).rejects.toThrow('Invalid local');
+ await runtime.removeLocalProfile(target.id);
+ const after=await runtime.settings();expect(after.profile_selection).toEqual({mode:'manual',manualId:null,fallbackId:null});expect(after.active_by_title).toEqual({two:other.id});expect(after.ballast_by_profile).toEqual({[other.id]:.7});expect(after.last_profile_id).toBeNull();
+ expect(runtime.getState().profile).toBeNull();expect((await store.list()).find(m=>m.id===target.id)?.virtual).toBe(true);
+ expect(readdirSync(store.profilesDir).sort()).toEqual([target.id+'.json.deleted.bak','other.json']);
+});

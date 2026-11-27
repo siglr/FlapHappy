@@ -11,8 +11,8 @@ import { canSaveWeightMode, interpolationFraction, liveWeight, profileForWeightM
 import { initialBallast, type BallastState } from '../core/ballast';
 import { resolveProfileChoice, selectProfileId } from '../core/select';
 import { effectiveBoundaries, smoothStep } from '../core/scale';
-import { clamp01, cloneProfile, exportProfileJson, parseProfileJson, profileLabel } from '../core/profile';
-import { defaultSettings } from '../core/settings';
+import { clamp01, cloneProfile, exportProfileJson, parseProfileJson, profileLabel, sanitizeId } from '../core/profile';
+import { defaultSettings,forgetLocalProfile } from '../core/settings';
 import { SimulatedSource } from '../adapters/simulated/simulated-source';
 import { clear, h, setText, toggleClass } from './dom';
 import { StripView } from './strip';
@@ -252,12 +252,12 @@ export class App {
     if(!this.deps.info.mainWindow&&!this.strictLiveSelection())return;
     const choice=this.settings.profile_selection;
     const candidates=this.metas.filter(m=>!m.error);
-    const demos=this.usingSim?candidates.filter(m=>m.source==='preset'&&m.id.startsWith('demo-')):[];
-    const locals=candidates.filter(m=>!(m.source==='preset'&&m.id.startsWith('demo-')));
+    const demos=this.usingSim?candidates.filter(m=>m.virtual):[];
+    const locals=candidates.filter(m=>!(m.virtual));
     const published=this.mainWsgCatalog?.profiles??[];
     const validPublished=(key:string)=>published.some(p=>('WSG:'+p.variantKey)===key);
     const canUsePublished=(p:WsgCatalog['profiles'][number])=>!!wsgFlightProfile({variantKey:p.variantKey,displayName:p.variantKey,profile:p},this.settings.wsg_profile_overrides);
-    const signature=JSON.stringify([choice,this.usingSim,candidates.map(m=>[m.id,m.incomplete]),published.map(p=>[p.variantKey,canUsePublished(p)]),this.mainWsgStatus,this.settings.wsg_profiles_enabled,this.profile?.id,this.activeProfileSource,this.detectedWsgVariant]);
+    const signature=JSON.stringify([choice,this.usingSim,candidates.map(m=>[m.id,m.incomplete,m.virtual]),published.map(p=>[p.variantKey,canUsePublished(p)]),this.mainWsgStatus,this.settings.wsg_profiles_enabled,this.profile?.id,this.activeProfileSource,this.detectedWsgVariant]);
     if(signature===this.profileControlsSignature)return;
     this.profileControlsSignature=signature;
     clear(root);
@@ -267,7 +267,7 @@ export class App {
     const picker=h('select',{class:'fh-in fh-profile-choice','aria-label':choice.mode==='manual'?'Active profile':'Fallback profile'},h('option',{value:''},'None'),
       h('optgroup',{label:'Custom profiles'},...locals.map(m=>h('option',{value:m.id,disabled:m.incomplete},profileLabel(m.id)+(m.incomplete?' (needs input)':'')))),
       demos.length?h('optgroup',{label:'Demo examples (offline)'},...demos.map(m=>h('option',{value:m.id},profileLabel(m.id.replace(/^demo-/,''))))):null,
-      published.length?h('optgroup',{label:'WSG.org published profiles'},...published.map(p=>h('option',{value:'WSG:'+p.variantKey,disabled:!canUsePublished(p)},p.variantKey+(canUsePublished(p)?(p.lightStallIasKph===null?' (stall IAS not published)':'')+' (upper IAS not published)':' (needs profile review)')))):null) as HTMLSelectElement;
+      published.length?h('optgroup',{label:'WSG.org published profiles'},...published.map(p=>h('option',{value:'WSG:'+p.variantKey,disabled:!canUsePublished(p)},p.variantKey+(canUsePublished(p)?'':' (needs profile review)')))):null) as HTMLSelectElement;
     const saved=choice[field];if(saved&&!candidates.some(m=>m.id===saved)&&!validPublished(saved))picker.appendChild(h('option',{value:saved},saved+' (unavailable)'));
     picker.value=saved??'';picker.addEventListener('change',()=>this.setProfileSelection(choice.mode,field,picker.value||null));
     const source=this.profile?this.activeProfileSource==='wsg'?'WSG published profile':this.activeProfileSource==='fallback'?'Fallback profile':this.activeProfileSource==='manual'?'Manual profile':this.activeProfileSource==='assigned'?'Assigned local profile':'Matched local profile':this.detectedWsgVariant?'WSG '+this.detectedWsgVariant+' (no active profile)':'No active profile';
@@ -347,12 +347,13 @@ export class App {
     this.renderAll();
   }
 
-  /** Keep the simulated L var consistent with the active profile. The flap count stays at the sim's own setting. */
+  /** Keep Demo controls consistent with the selected profile, not each telemetry sample. */
   syncSimToProfile(): void {
     const p = this.profile;
     const sim = this.deps.sim;
     if (!p) return;
     sim.setLvarName(p.current_flap.lvar_name);
+    if(this.usingSim&&sim.primeProfile(p))sim.tick(0);
   }
 
   private onSample(s: SimSample): void {
@@ -402,7 +403,9 @@ export class App {
     this.detectedWsgVariant=state.detectedWsgVariant??null;this.activeProfileSource=state.profileSource??'none';
     this.noProfileMessage=state.noProfileMessage??'';
     const changed=this.profile?.id!==state.profile?.id;
-    this.profile=state.profile;this.validation=this.profile?validateProfile(this.profile,{liveHandleCount:state.sample?.flapCount}):null;
+    this.profile=state.profile;
+    if(this.usingSim&&state.ready){if(this.deps.sim.primeProfile(this.profile))this.deps.sim.tick(0);}
+    this.validation=this.profile?validateProfile(this.profile,{liveHandleCount:state.sample?.flapCount}):null;
     if(this.profile&&!this.profile.wsg)this.settings.last_profile_id=this.profile.id;
     this.ballast={f:state.ballast,unconfirmed:false,restored:false};
     if(changed){this.resolver.reset();this.smoothIas=this.smoothAgl=null;}
@@ -465,15 +468,16 @@ export class App {
       this.detectedWsgVariant=matched?.variantKey??null;
       this.activeWsgMatch=matched;
       const effective=matched?wsgFlightProfile(matched,this.settings.wsg_profile_overrides):null;
+      const validation=effective?validateProfile(effective,{liveHandleCount:this.lastSample?.flapCount}):null;
       if(effective){
         const choice=resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:matched!.variantKey});
-        if(choice.kind==='wsg'&&validateProfile(effective,{liveHandleCount:this.lastSample?.flapCount}).ok){
+        if(choice.kind==='wsg'&&validation?.ok){
           this.activeWsgMatch=matched;this.activeProfileSource='wsg';this.setActiveProfile(effective,true);return;
         }
       }
-      if(matched)this.noProfileMessage=matched.profile
+      if(matched)this.noProfileMessage=validation?.errors.find(e=>e.code==='wsg-live-count')?.message??(matched.profile
         ? 'WSG '+matched.variantKey+': profile or local overrides incompatible. Check Settings.'
-        : 'WSG '+matched.variantKey+': no published flap profile. Choose a custom profile in Settings.';
+        : 'WSG '+matched.variantKey+': no published flap profile. Choose a custom profile in Settings.');
     }catch{/* Offline: use only explicitly configured fallback or unique local title rule. */}
     if(generation!==this.liveSelectionGeneration)return;
     await this.applyLocalChoice(resolveProfileChoice(this.metas,this.settings,title,binding,{pending:false,usableVariantKey:null}),generation);
@@ -503,6 +507,15 @@ export class App {
 
   async refreshMetas(): Promise<void> {
     this.metas = await this.deps.store.list();
+  }
+
+  async deleteLocalProfile(id:string):Promise<void>{
+    await this.refreshMetas();const meta=this.metas.find(p=>p.id===id);
+    if(!id||id!==sanitizeId(id)||!meta||meta.virtual)throw Error('Only saved local profiles may be deleted.');
+    await this.deps.store.remove(id);
+    if(this.deps.info.mainWindow){this.settings=await this.deps.store.getSettings();await this.readRuntimeState();await this.refreshMetas();this.renderAll();return;}
+    forgetLocalProfile(this.settings,id);if(this.profile?.id===id)this.clearLiveProfile('No active profile');
+    await this.refreshMetas();await this.persistNow();this.refreshLiveProfileSelection();this.renderAll();
   }
 
   /** Make a stored profile the active one. `manual` remembers the choice for the current aircraft title. */
@@ -695,6 +708,12 @@ export class App {
     this.renderAll();
   }
 
+  setGroupHiddenFlapLabels(on: boolean): void {
+    this.settings.ui.group_hidden_flap_labels = on;
+    this.persistSoon();
+    this.renderAll();
+  }
+
   setShowTransitions(on: boolean): void {
     this.settings.ui.show_transitions = on;
     this.persistSoon();
@@ -817,6 +836,7 @@ export class App {
       units: this.settings.units,
       height: this.settings.height,
       agl: this.settings.agl,
+      groupHiddenFlapLabels: this.settings.ui.group_hidden_flap_labels,
     });
   }
 
@@ -849,9 +869,9 @@ export class App {
     this.mainConnection.classList.toggle('fh-main-live',model.link==='live');
     setText(this.mainAircraft,this.lastSample?.connected&&this.lastSample.aircraftTitle?this.lastSample.aircraftTitle+(model.link==='nodata'?' (last seen)':''):'Aircraft not detected');
     setText(this.mainActiveProfile,this.profile?this.profile.id:'None');
-    const type=this.profile?.wsg?'WSG.org':this.profile?.source==='preset'&&this.profile.id.startsWith('demo-')?'Demo example':this.profile?'Custom profile':'No active profile';
+    const type=this.profile?.wsg?'WSG.org':this.profile&&this.metas.some(m=>m.id===this.profile?.id&&m.virtual)?'Demo example':this.profile?'Custom profile':'No active profile';
     const source=this.activeProfileSource==='manual'?'Manual selection':this.activeProfileSource==='fallback'?'Fallback':this.activeProfileSource==='assigned'?'Aircraft assignment':this.activeProfileSource==='local'||this.activeProfileSource==='wsg'?'Auto-detected':'';
-    setText(this.mainProfileSource,type+(this.profile&&source?' - '+source:''));
+    setText(this.mainProfileSource,type+(this.profile&&source?' - '+source:'')+(model.incompleteMessage?.startsWith('Flap count mismatch')?' - '+model.incompleteMessage:''));
   }
 
   private paintExternal(): void {

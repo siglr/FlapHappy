@@ -14,7 +14,7 @@ export function defaultSettings(): Settings {
     units: 'kt',
     height: 'ft',
     agl: defaultAglScale(),
-    ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, external_panel_on_launch: false, show_ballast: true, show_agl: true, auto_hide_external: false, simple_flap: false, show_transitions: false, highlight_recommended:false, show_wind: true, bar_shading: true },
+    ui: { compact: true, always_on_top: false, opacity: 1, zoom: 1, demo_mode: false, external_panel_on_launch: false, show_ballast: true, show_agl: true, auto_hide_external: false, simple_flap: false, show_transitions: false, group_hidden_flap_labels: false, highlight_recommended:false, show_wind: true, bar_shading: true },
     wsg_profiles_enabled: false,
     wsg_profile_overrides: {},
     panel_destination:normalizePanelDestination(null),
@@ -80,6 +80,7 @@ export function normalizeSettings(raw: unknown): Settings {
       simple_flap: ui.simple_flap === true,
       auto_hide_external: ui.auto_hide_external === true,
       show_transitions: ui.show_transitions === true,
+      group_hidden_flap_labels: ui.group_hidden_flap_labels === true,
       highlight_recommended: ui.highlight_recommended===true,
       show_wind: ui.show_wind !== false,
       bar_shading: ui.bar_shading !== false,
@@ -90,4 +91,13 @@ export function normalizeSettings(raw: unknown): Settings {
     main_window: bounds(r.main_window),
     panel_destination:normalizePanelDestination(r.panel_destination),
   };
+}
+
+/** Clear only references to a deleted local profile, never another variant. */
+export function forgetLocalProfile(settings:Settings,id:string):void {
+  if(settings.last_profile_id===id)settings.last_profile_id=null;
+  if(settings.profile_selection.manualId===id)settings.profile_selection.manualId=null;
+  if(settings.profile_selection.fallbackId===id)settings.profile_selection.fallbackId=null;
+  for(const key of Object.keys(settings.active_by_title))if(settings.active_by_title[key]===id)delete settings.active_by_title[key];
+  delete settings.ballast_by_profile[id];
 }

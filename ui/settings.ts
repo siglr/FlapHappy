@@ -38,6 +38,7 @@ export class SettingsView {
   private saveAsBtn: HTMLButtonElement | null = null;
   private profilePicker: HTMLSelectElement | null = null;
   private newProfileBtn: HTMLButtonElement | null = null;
+  private deleteProfileBtn: HTMLButtonElement | null = null;
   private discardBtn: HTMLButtonElement | null = null;
   private profileBusy = false;
   private mappingOpen = false;
@@ -127,7 +128,7 @@ export class SettingsView {
     await this.app.refreshMetas();
     const imp = this.app.consumeImport();
     if (this.app.unsaved) this.draft = cloneProfile(this.app.unsaved);
-    else if (this.app.profile && !this.app.profile.wsg) this.draft = cloneProfile(this.app.profile);
+    else if (this.app.profile && !this.app.profile.wsg && !this.isDemo(this.app.profile)) this.draft = cloneProfile(this.app.profile);
     this.weightMode = this.app.unsaved ? this.app.unsavedWeightMode : weightModeForProfile(this.draft);
     this.draftBindingKey = this.app.unsaved ? this.app.draftAircraftBindingKey : this.app.currentAircraftBindingKey;
     this.mappingOpen = this.draft?.flaps.length === 0;
@@ -196,6 +197,7 @@ export class SettingsView {
     if (this.saveAsBtn) this.saveAsBtn.disabled = !canSave;
     if (this.profilePicker) this.profilePicker.disabled = this.dirty || this.profileBusy;
     if (this.newProfileBtn) this.newProfileBtn.disabled = this.dirty || this.profileBusy;
+    if (this.deleteProfileBtn) this.deleteProfileBtn.disabled = this.dirty || this.profileBusy;
     if (this.discardBtn) this.discardBtn.style.display = this.dirty ? '' : 'none';
     toggleClass(this.saveBtn, 'dirty', this.dirty);
   }
@@ -276,9 +278,9 @@ export class SettingsView {
     const sw = (cls: string, on: boolean, label: string, set: (v: boolean) => void, enabled = true) =>
       h('label', { class: 'fh-slide' + (enabled ? '' : ' off') }, h('input', { type: 'checkbox', class: cls, 'aria-label': label, checked: on, disabled: !enabled, onchange: (e: Event) => set((e.target as HTMLInputElement).checked) }), h('span', { class: 'fh-slidetrack' }, h('span', { class: 'fh-slideknob' })));
     const row = (label: string, control: HTMLElement, enabled = true) => h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' + (enabled ? '' : ' off') }, label), control);
-    const toggles = h('div', { class: 'fh-toggles' }, h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Speed'), h('span', { class: 'fh-units' }, unitBtn('kt', 'kt'), unitBtn('kmh', 'km/h'))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Altitude'), h('span', { class: 'fh-units fh-height' }, heightBtn('ft', 'ft'), heightBtn('m', 'm'))), row('Simple flap indicator', sw('fh-simple-flap', u.simple_flap, 'Simple flap indicator', (v) => { const focused = this.el.ownerDocument.activeElement?.classList.contains('fh-simple-flap'); app.setSimpleFlap(v); this.renderProfileBar(); if (focused) this.displayBox.querySelector<HTMLInputElement>('.fh-simple-flap')?.focus(); })), row('Flap transitions', sw('fh-show-transitions', u.show_transitions, 'Flap transitions', (v) => app.setShowTransitions(v), !u.simple_flap), !u.simple_flap), row('Highlight suggested flap', sw('fh-highlight-recommended', u.highlight_recommended, 'Highlight suggested flap', (v)=>app.setHighlightRecommended(v), !u.simple_flap), !u.simple_flap), row('Weight / ballast bar', sw('fh-show-ballast', u.show_ballast, 'Weight / ballast bar', (v) => app.setShowBallast(v))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'AGL bar'), sw('fh-show-agl', u.show_agl, 'AGL bar', (v) => { app.setShowAgl(v); this.renderProfileBar(); }), h('span', { class: 'fh-unitlab fh-beside' + (u.show_agl ? '' : ' off') }, 'Wind speed'), sw('fh-show-wind', u.show_wind, 'Wind speed', (v) => app.setShowWind(v), u.show_agl)));
+    const toggles = h('div', { class: 'fh-toggles' }, h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Speed'), h('span', { class: 'fh-units' }, unitBtn('kt', 'kt'), unitBtn('kmh', 'km/h'))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'Altitude'), h('span', { class: 'fh-units fh-height' }, heightBtn('ft', 'ft'), heightBtn('m', 'm'))), row('Simple flap indicator', sw('fh-simple-flap', u.simple_flap, 'Simple flap indicator', (v) => { const focused = this.el.ownerDocument.activeElement?.classList.contains('fh-simple-flap'); app.setSimpleFlap(v); this.renderProfileBar(); if (focused) this.displayBox.querySelector<HTMLInputElement>('.fh-simple-flap')?.focus(); })), row('Group hidden flap labels', sw('fh-group-hidden-labels', u.group_hidden_flap_labels, 'Group hidden flap labels', (v) => app.setGroupHiddenFlapLabels(v))), row('Flap transitions', sw('fh-show-transitions', u.show_transitions, 'Flap transitions', (v) => app.setShowTransitions(v), !u.simple_flap), !u.simple_flap), row('Highlight suggested flap', sw('fh-highlight-recommended', u.highlight_recommended, 'Highlight suggested flap', (v)=>app.setHighlightRecommended(v), !u.simple_flap), !u.simple_flap), row('Weight / ballast bar', sw('fh-show-ballast', u.show_ballast, 'Weight / ballast bar', (v) => app.setShowBallast(v))), h('div', { class: 'fh-optrow' }, h('span', { class: 'fh-unitlab' }, 'AGL bar'), sw('fh-show-agl', u.show_agl, 'AGL bar', (v) => { app.setShowAgl(v); this.renderProfileBar(); }), h('span', { class: 'fh-unitlab fh-beside' + (u.show_agl ? '' : ' off') }, 'Wind speed'), sw('fh-show-wind', u.show_wind, 'Wind speed', (v) => app.setShowWind(v), u.show_agl)));
     this.saveAsBtn = files ? h('button', { class: 'fh-btn fh-saveas', type: 'button', disabled: !!this.wsgPreview || !canSaveWeightMode(this.draft, this.weightMode), onclick: () => void this.saveAs() }, 'Save As...') as HTMLButtonElement : null;
-    const ids = app.metas.map(m => m.id);
+    const ids = app.metas.filter(m=>!this.isDemo(m)).map(m => m.id);
     if (this.draft && ids.indexOf(this.draft.id) < 0) ids.push(this.draft.id);
     ids.sort((a, b) => a.localeCompare(b));
     const customFile = h('input', { type: 'file', accept: '.json,application/json', class: 'fh-custom-file', 'aria-label': 'Custom profile JSON', onchange: (e: Event) => {
@@ -329,9 +331,26 @@ export class SettingsView {
       h('div', { class: 'fh-prow' }, this.profilePicker, this.newProfileBtn, this.discardBtn,
         customFile, this.saveAsBtn, app.host.capabilities.openFolder ? h('button', { class: 'fh-btn', type: 'button', onclick: () => app.host.openProfilesFolder() }, 'Open profiles folder') : null),
       newForm);
+    this.deleteProfileBtn=null;
+    if(!this.wsgPreview&&this.draft&&app.metas.some(m=>m.id===this.draft!.id&&!this.isDemo(m))){
+      this.deleteProfileBtn=h('button',{type:'button',class:'fh-btn fh-delete-profile',disabled:this.dirty||this.profileBusy,onclick:()=>void this.deleteSelectedProfile()},'Delete profile') as HTMLButtonElement;
+      profile.querySelector('.fh-prow')?.appendChild(this.deleteProfileBtn);
+    }
     this.profileBar.appendChild(profile);
     this.displayBox.appendChild(h('details', { class: 'fh-details fh-display-options', open: this.displayOptionsOpen }, h('summary', null, this.app.info.mainWindow?'Units and flight display':'Display (app-wide preferences)'), h('div',{class:'fh-hint'},'These units apply to every glider and both panels.'),toggles));
     if (!this.draft) this.profileBar.appendChild(h('div', { class: 'fh-hint' }, 'No profile yet. Create a local profile or open a JSON file to start.'));
+  }
+
+  private isDemo(p:{id:string}):boolean{return this.app.metas.some(m=>m.id===p.id&&m.virtual);}
+
+  private async deleteSelectedProfile():Promise<void>{
+    const id=this.draft?.id;
+    if(!id||this.wsgPreview||this.dirty||this.profileBusy||!this.app.metas.some(m=>m.id===id&&!this.isDemo(m)))return;
+    if(!this.el.ownerDocument.defaultView?.confirm('Delete custom profile "'+profileLabel(id)+'"? Its aircraft assignments and active/fallback selections will be cleared.'))return;
+    this.profileBusy=true;this.paintSaveState();
+    try{await this.app.deleteLocalProfile(id);this.setDraft(null);setText(this.saveState,'Profile deleted');}
+    catch(e){setText(this.saveState,e instanceof Error?e.message:'Could not delete profile.');}
+    finally{this.profileBusy=false;this.paintSaveState();}
   }
 
   private selectedProfileValue(): string {
@@ -369,7 +388,7 @@ export class SettingsView {
   }
 
   private async selectProfile(id: string): Promise<void> {
-    if (!id || this.dirty || this.profileBusy) return;
+    if (!id || this.dirty || this.profileBusy || this.app.metas.some(m=>m.id===id&&this.isDemo(m))) return;
     this.profileBusy = true;
     this.paintSaveState();
     try{
@@ -387,11 +406,11 @@ export class SettingsView {
     if(!this.dirty)return;
     let saved:Profile|null=null;
     if(this.draft){try{saved=await this.app.store.load(this.draft.id);}catch{/* new unsaved profile */}}
-    this.setDraft(saved?cloneProfile(saved):this.app.profile&&!this.app.profile.wsg?cloneProfile(this.app.profile):null);
+    this.setDraft(saved?cloneProfile(saved):this.app.profile&&!this.app.profile.wsg&&!this.isDemo(this.app.profile)?cloneProfile(this.app.profile):null);
     toggleClass(this.saveState,'dirty',false);setText(this.saveState,'Unsaved changes discarded');
   }
 
-  private fieldInput(path: string, value: string, opts: { cls?: string; placeholder?: string; type?: string; step?: string; onInput: (text: string) => void; label?: string }): HTMLInputElement {
+  private fieldInput(path: string, value: string, opts: { cls?: string; placeholder?: string; type?: string; step?: string; speed?:boolean; onInput: (text: string) => void; label?: string }): HTMLInputElement {
     const inp = h('input', {
       class: 'fh-in ' + (opts.cls ?? ''),
       type: opts.type ?? 'number',
@@ -404,6 +423,7 @@ export class SettingsView {
         const el = e.target as HTMLInputElement;
         const idx = this.prefilled.indexOf(parseTransitionIndex(path));
         if (idx >= 0 && path.indexOf('transitions[') === 0) this.prefilled.splice(idx, 1);
+        if(opts.speed)limitSpeedInput(el);
         opts.onInput(el.value);
         this.edited(false);
       },
@@ -435,8 +455,8 @@ export class SettingsView {
     const speedRow = (title: string, cls: string, nameEl: HTMLElement | null, get: () => { no_ballast_kt: number | null; max_ballast_kt: number | null }, path: string, isEnd: boolean) => {
       const pair = get();
       return h('div', { class: 'fh-profile-grid ' + cls }, nameEl ?? h('div', { class: 'fh-profile-title' }, title),
-        column(this.fieldInput(path + '.no_ballast_kt', formatSpeedField(pair.no_ballast_kt, unit), { cls: 'fh-speed', step: '1', onInput: (t) => { get().no_ballast_kt = storeSpeed(t); }, label: title + ' ' + left + ' IAS (' + unitLabel(unit) + ')' })),
-        column(this.fieldInput(path + '.max_ballast_kt', formatSpeedField(pair.max_ballast_kt, unit), { cls: 'fh-speed', step: '1', placeholder: isEnd ? 'same' : '', onInput: (t) => { get().max_ballast_kt = storeSpeed(t); }, label: title + ' ' + right + ' IAS (' + unitLabel(unit) + ')' })));
+        column(this.fieldInput(path + '.no_ballast_kt', formatSpeedField(pair.no_ballast_kt, unit), { cls: 'fh-speed', step: '0.1', speed:true, onInput: (t) => { get().no_ballast_kt = storeSpeed(t); }, label: title + ' ' + left + ' IAS (' + unitLabel(unit) + ')' })),
+        column(this.fieldInput(path + '.max_ballast_kt', formatSpeedField(pair.max_ballast_kt, unit), { cls: 'fh-speed', step: '0.1', speed:true, placeholder: isEnd ? 'same' : '', onInput: (t) => { get().max_ballast_kt = storeSpeed(t); }, label: title + ' ' + right + ' IAS (' + unitLabel(unit) + ')' })));
     };
     const ref = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Reference weights and stall IAS'));
     const mode = h('select', { class: 'fh-in fh-weight-mode', 'aria-label': 'Flying weight mode', onchange: (e: Event) => this.selectWeightMode((e.target as HTMLSelectElement).value as WeightMode) },
@@ -448,23 +468,25 @@ export class SettingsView {
       column(this.fieldInput('weight_kg.light', fmtNum(d.weight_kg.light), { cls: 'fh-speed', step: '1', label: 'Light flying weight (kg)', onInput: (t) => { d.weight_kg.light = numberOrNull(t); } })),
       column(this.fieldInput('weight_kg.heavy', fmtNum(d.weight_kg.heavy), { cls: 'fh-speed', step: '1', label: 'Heavy flying weight (kg)', onInput: (t) => { d.weight_kg.heavy = numberOrNull(t); } }))));
     ref.appendChild(speedRow('Stall IAS (' + unitLabel(unit) + ')', 'fh-minrow', null, () => d.vs_min, 'vs_min', true));
-    ref.appendChild(h('div', { class: 'fh-hint' }, this.weightMode === 'live' ? 'Both loaded weights are required; Light must be below Heavy.' : 'No flying weights are required. Set the manual ballast slider in flight.'));
+    ref.appendChild(h('div', { class: 'fh-hint' }, this.weightMode === 'live' ? 'Both loaded weights are required; Light must be below Heavy. Stall IAS is optional; leave both blank to use a visual lower bound.' : 'No flying weights are required. Set the manual ballast slider in flight. Stall IAS is optional; leave both blank to use a visual lower bound.'));
     this.table.appendChild(ref);
-    const transitions = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Flap transitions — IAS (' + unitLabel(unit) + ')'), columns('From → To', left, right));
+    const transitionHead=columns('From → To',left,right);transitionHead.classList.add('fh-visibility-row');transitionHead.appendChild(h('div',{class:'fh-visibility-cell'},'In-flight display'));
+    const transitions = h('div', { class: 'fh-profile-card' }, h('div', { class: 'fh-subtitle' }, 'Flap transitions — IAS (' + unitLabel(unit) + ')'), transitionHead);
     for (let i = 0; i < n - 1; i++) {
       const nameEl = h('div', { class: 'fh-profile-title fh-transname' }, this.transitionLabel(d, i));
       this.transNames.push(nameEl);
       const trow = speedRow(this.transitionLabel(d, i), 'fh-transition-row fh-trow', nameEl, () => d.transitions[i], `transitions[${i}]`, false);
       if (this.prefilled.indexOf(i) >= 0) trow.classList.add('prefilled');
-      const excluded=h('input',{type:'checkbox',checked:d.transitions[i].exclude_from_display===true,'aria-label':'Exclude '+transitionName(d,i)+' from display',onchange:(e:Event)=>{
-        d.transitions[i].exclude_from_display=(e.target as HTMLInputElement).checked;this.edited(false);
-      }});
+      const excluded=h('select',{class:'fh-in fh-exclude-transition','aria-label':'Exclude '+transitionName(d,i)+' from display',onchange:(e:Event)=>{
+        d.transitions[i].exclude_from_display=(e.target as HTMLSelectElement).value==='hide';this.edited(false);
+      }},h('option',{value:'show'},'Show'),h('option',{value:'hide'},'Hide')) as HTMLSelectElement;
+      excluded.value=d.transitions[i].exclude_from_display?'hide':'show';
+      trow.classList.add('fh-visibility-row');trow.appendChild(h('div',{class:'fh-visibility-cell'},excluded));
       transitions.appendChild(trow);
-      transitions.appendChild(h('label',{class:'fh-check fh-exclude-transition'},excluded,' Merge adjoining flap bands (exclude divider)'));
     }
     if (n < 2) transitions.appendChild(h('div', { class: 'fh-hint' }, 'At least two flap positions are needed for a transition. Edit the flap mapping below.'));
     if (n > 0) transitions.appendChild(h('div', { class: 'fh-profile-grid fh-vne-row' }, h('div', { class: 'fh-profile-title' }, 'Max (Vne) (' + unitLabel(unit) + ')'),
-      column(this.fieldInput('vne', formatSpeedField(d.vne, unit), { cls: 'fh-speed', step: '1', label: 'Max (Vne)', onInput: (t) => { d.vne = storeSpeed(t); } })), column('')));
+      column(this.fieldInput('vne', formatSpeedField(d.vne, unit), { cls: 'fh-speed', step: '0.1', speed:true, label: 'Max (Vne)', onInput: (t) => { d.vne = storeSpeed(t); } })), column('')));
     this.table.appendChild(transitions);
     const mapping = h('details', { class: 'fh-details fh-mapping', 'data-profile': d.id, open: this.mappingOpen || n === 0 }, h('summary', null, 'Advanced: flap names and simulator positions'),
       h('div', { class: 'fh-hint' }, 'Define the ordered flap positions. Drag a name to another row; simulator indexes and speed boundaries stay in their existing slots.'));
@@ -501,7 +523,7 @@ export class SettingsView {
       h('div', { class: 'fh-hint' }, 'Published baseline. Personal adjustments below are local; WSG profiles default to live weight.'),
       row('', 'Light', 'Heavy'), row('Flying weight (kg)', String(p.lightWeightKg), String(p.heavyWeightKg)),
       row('Stall IAS (' + unitLabel(unit) + ')', speed(p.lightStallIasKph === null ? null : p.lightStallIasKph / 1.852), speed(p.heavyStallIasKph === null ? null : p.heavyStallIasKph / 1.852)),
-      h('div', { class: 'fh-hint' }, 'An IAS upper limit is not published. Without a personal IAS limit, the upper ribbon edge is visual only.')));
+      h('div', { class: 'fh-hint' }, 'The published VNE number (TAS) sets the ribbon upper edge only; it does not trigger an IAS warning. An explicit personal IAS limit remains separate.')));
     const transitions = h('div', { class: 'fh-profile-card fh-wsg-transitions' }, h('div', { class: 'fh-subtitle' }, 'Published transition IAS (' + unitLabel(unit) + ')'), row('From → To', 'Light', 'Heavy'));
     for (let i = 1; i < p.bands.length; i++) {
       const b = p.bands[i], from = p.bands[i - 1];
@@ -523,44 +545,62 @@ export class SettingsView {
     const mode=h('select',{class:'fh-in fh-wsg-ballast', 'aria-label':'Personal ballast mode'},h('option',{value:'inherit'},'WSG default (Live flying weight)'),h('option',{value:'manual'},'Manual ballast slider'),h('option',{value:'live'},'Live flying weight')) as HTMLSelectElement;
     mode.value=prior?.ballastMode??'inherit';
     box.appendChild(h('label',{class:'fh-profile-grid'},h('span',{class:'fh-profile-title'},'Ballast mode'),mode));
-    const number=(key:string,published:number|null,override:number|null|undefined)=>h('input',{class:'fh-in',type:'number',min:'0',step:'any',placeholder:published===null?'Not published':String(published),value:typeof override==='number'?String(override):'','aria-label':key,'data-wsg-override':key}) as HTMLInputElement;
+    const unit=app.settings.units;
+    type Numeric={original:number|null|undefined;initial:string;kind:'kg'|'kph'|'kt';edited:boolean};
+    const numerics=new Map<HTMLInputElement,Numeric>();
+    const display=(v:number|null|undefined,kind:Numeric['kind'])=>v==null?'':kind==='kg'?String(v):formatSpeedField(kind==='kt'?v:v/1.852,unit);
+    const number=(key:string,published:number|null,override:number|null|undefined,kind:Numeric['kind']='kg')=>{
+      const initial=display(override,kind),el=h('input',{class:'fh-in fh-override-number',type:'number',min:'0',step:kind==='kg'?'any':'0.1',placeholder:published===null?'Not published':display(published,kind),value:initial,'aria-label':key,'data-wsg-override':key}) as HTMLInputElement;
+      const meta:Numeric={original:override,initial,kind,edited:false};numerics.set(el,meta);
+      el.addEventListener('input',()=>{if(kind!=='kg')limitSpeedInput(el);meta.edited=true;updateConfirm();});return el;
+    };
+    const read=(el:HTMLInputElement):number|null|undefined=>{
+      const meta=numerics.get(el)!;
+      if(!meta.edited||el.value===meta.initial)return meta.original;
+      if(!el.value.trim())return undefined;
+      const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');
+      return meta.kind==='kg'?n:meta.kind==='kt'?unitToKnots(n,unit):unit==='kmh'?n:n*1.852;
+    };
     const l=number('lightWeightKg',p.lightWeightKg,prior?.lightWeightKg), r=number('heavyWeightKg',p.heavyWeightKg,prior?.heavyWeightKg);
-    const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph);
-    const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid'},h('div',{class:'fh-profile-title'},name),...controls);
-    box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS (km/h)',ls,rs));
+    const ls=number('lightStallIasKph',p.lightStallIasKph,prior?.lightStallIasKph,'kph'), rs=number('heavyStallIasKph',p.heavyStallIasKph,prior?.heavyStallIasKph,'kph');
+    const row=(name:string,...controls:HTMLElement[])=>h('div',{class:'fh-profile-grid fh-wsg-edit-row'},h('div',{class:'fh-profile-title'},name),...controls);
+    box.appendChild(row('Flying weight (kg)',l,r));box.appendChild(row('Stall IAS ('+unitLabel(unit)+')',ls,rs));
     box.appendChild(h('div',{class:'fh-hint'},'Stall IAS is optional and refers to the most positive landing flap and exact Light/Heavy weights, even if that flap is hidden. Without a valid pair, the lower ribbon edge is only a visual estimate.'));
-    const initialLight=ls.value,initialHeavy=rs.value;
     const confirmStall=h('input',{type:'checkbox',class:'fh-confirm-stall-context'}) as HTMLInputElement;
     const confirmRow=h('label',{class:'fh-check fh-confirm-stall-row',hidden:true},confirmStall,' Confirm these retained stall IAS values apply to the landing flap and selected reference weights.');box.appendChild(confirmRow);
-    const upper=number('upperIasKph',null,prior?.upperIasKph);box.appendChild(row('Personal upper IAS limit (km/h)',upper));
-    box.appendChild(h('div',{class:'fh-hint'},'Speed overrides below are IAS in km/h; published reference weights are retained even in Manual ballast mode.'));
+    const upper=number('upperIasKph',null,prior?.upperIasKph,'kph');box.appendChild(row('Personal upper IAS limit ('+unitLabel(unit)+')',upper));
+    box.appendChild(h('div',{class:'fh-hint'},'Speed overrides below are IAS in '+unitLabel(unit)+'; published reference weights are retained even in Manual ballast mode.'));
+    const header=row('From → To',h('div',{class:'fh-override-number'},'Light'),h('div',{class:'fh-override-number'},'Heavy'),h('div',{class:'fh-visibility-cell'},'In-flight display'));header.classList.add('fh-profile-head','fh-visibility-row');box.appendChild(header);
     const rows=p.bands.slice(1).map((b,i)=>{
       const id=transitionIdentity(p.bands[i],b),t=prior?.transitions?.[id];
-      const light=number('transition '+i+' Light',b.lightStartKt*1.852,t?.lightStartKt===undefined?undefined:t.lightStartKt*1.852),heavy=number('transition '+i+' Heavy',b.heavyStartKt*1.852,t?.heavyStartKt===undefined?undefined:t.heavyStartKt*1.852);
+      const light=number('transition '+i+' Light',b.lightStartKt,t?.lightStartKt,'kt'),heavy=number('transition '+i+' Heavy',b.heavyStartKt,t?.heavyStartKt,'kt');
       const visibility=h('select',{class:'fh-in','aria-label':'Transition '+i+' visibility'},h('option',{value:'inherit'},'WSG default ('+(b.excludeFromDisplay?'Hide':'Show')+')'),h('option',{value:'show'},'Show'),h('option',{value:'hide'},'Hide')) as HTMLSelectElement;
-      visibility.value=t?.excludeFromDisplay===undefined?'inherit':t.excludeFromDisplay?'hide':'show';
-      box.appendChild(row(p.bands[i].label+' → '+b.label,light,heavy));box.appendChild(row('In-flight display',visibility));
+      visibility.value=t?.excludeFromDisplay===undefined?'inherit':t.excludeFromDisplay?'hide':'show';visibility.addEventListener('change',updateConfirm);
+      const line=row(p.bands[i].label+' → '+b.label,light,heavy,h('div',{class:'fh-visibility-cell'},visibility));line.classList.add('fh-visibility-row');box.appendChild(line);
       return {id,light,heavy,visibility};
     });
-    const read=(el:HTMLInputElement)=>{if(!el.value.trim())return undefined;const n=el.valueAsNumber;if(!isFinite(n)||n<=0)throw Error('Enter positive numbers or leave the fields blank.');return n;};
-    const changedLight=()=>ls.value!==initialLight,changedHeavy=()=>rs.value!==initialHeavy;
-    const needsConfirmation=(context:string|null,light:number|undefined,heavy:number|undefined)=>!!context&&context!==(prior?.stallContext??null)&&light!==undefined&&heavy!==undefined&&(!changedLight()||!changedHeavy());
+    const build=()=>{
+      const o:WsgOverrides={mapping:mappingIdentity(p),transitions:{}};
+      if(mode.value==='manual'||mode.value==='live')o.ballastMode=mode.value;
+      const lw=read(l),hw=read(r),sl=read(ls),sh=read(rs),up=read(upper);
+      if(typeof lw==='number')o.lightWeightKg=lw;if(typeof hw==='number')o.heavyWeightKg=hw;
+      if(sl!==undefined)o.lightStallIasKph=sl;if(sh!==undefined)o.heavyStallIasKph=sh;if(typeof up==='number')o.upperIasKph=up;
+      for(const x of rows){const a=read(x.light),b=read(x.heavy);const t:{lightStartKt?:number;heavyStartKt?:number;excludeFromDisplay?:boolean}={};if(typeof a==='number')t.lightStartKt=a;if(typeof b==='number')t.heavyStartKt=b;if(x.visibility.value!=='inherit')t.excludeFromDisplay=x.visibility.value==='hide';if(Object.keys(t).length)o.transitions![x.id]=t;}
+      return o;
+    };
+    const changed=(el:HTMLInputElement)=>{const m=numerics.get(el)!;return m.edited&&el.value!==m.initial;};
+    const needsConfirmation=(o:WsgOverrides,context:string|null)=>!!context&&context!==(prior?.stallContext??null)&&typeof o.lightStallIasKph==='number'&&typeof o.heavyStallIasKph==='number'&&(!changed(ls)||!changed(rs));
     let lastConfirmContext:string|null=null;
-    const updateConfirm=()=>{try{const context=wsgStallContext(p,{mapping:mappingIdentity(p),lightWeightKg:read(l),heavyWeightKg:read(r)}),visible=needsConfirmation(context,read(ls),read(rs));if(!visible||confirmRow.hidden||lastConfirmContext!==context)confirmStall.checked=false;lastConfirmContext=context;confirmRow.hidden=!visible;}catch{confirmRow.hidden=true;confirmStall.checked=false;lastConfirmContext=null;}};
-    for(const input of [l,r,ls,rs])input.addEventListener('input',updateConfirm);updateConfirm();
+    function updateConfirm(){try{const o=build(),context=wsgStallContext(p,o);const visible=needsConfirmation(o,context);if(!visible||confirmRow.hidden||lastConfirmContext!==context)confirmStall.checked=false;lastConfirmContext=context;confirmRow.hidden=!visible;}catch{confirmRow.hidden=true;confirmStall.checked=false;lastConfirmContext=null;}}
+    updateConfirm();
     const save=h('button',{type:'button',class:'fh-btn fh-wsg-save-adjustments',disabled:current.state!=='ok',onclick:async()=>{
       try{
-        const o:WsgOverrides={mapping:mappingIdentity(p),transitions:{}};
-        if(mode.value==='manual'||mode.value==='live')o.ballastMode=mode.value;
-        const vals={lightWeightKg:read(l),heavyWeightKg:read(r),lightStallIasKph:read(ls),heavyStallIasKph:read(rs),upperIasKph:read(upper)};
-        for(const k of Object.keys(vals) as (keyof typeof vals)[])if(vals[k]!==undefined)o[k]=vals[k];
-        for(const x of rows){const a=read(x.light),b=read(x.heavy);const t:{lightStartKt?:number;heavyStartKt?:number;excludeFromDisplay?:boolean}={};if(a!==undefined)t.lightStartKt=a/1.852;if(b!==undefined)t.heavyStartKt=b/1.852;if(x.visibility.value!=='inherit')t.excludeFromDisplay=x.visibility.value==='hide';if(Object.keys(t).length)o.transitions![x.id]=t;}
-        const context=wsgStallContext(p,o);
+        const o=build(),context=wsgStallContext(p,o);
         if(o.lightStallIasKph!==undefined||o.heavyStallIasKph!==undefined){
-          if(needsConfirmation(context,vals.lightStallIasKph,vals.heavyStallIasKph)&&!confirmStall.checked){if(prior?.stallContext)o.stallContext=prior.stallContext;}
-          else if(changedLight()||changedHeavy()||confirmStall.checked){
+          if(needsConfirmation(o,context)&&!confirmStall.checked){if(prior?.stallContext)o.stallContext=prior.stallContext;}
+          else if(changed(ls)||changed(rs)||confirmStall.checked){
             if(!context)throw Error('A stall pair needs a landing flap position.');
-            if(context!==wsgStallContext(p)&&(o.lightStallIasKph===undefined||o.heavyStallIasKph===undefined))throw Error('Changed stall context: supply both IAS values or leave both empty.');
+            if(context!==wsgStallContext(p)&&(typeof o.lightStallIasKph!=='number'||typeof o.heavyStallIasKph!=='number'))throw Error('Changed stall context: supply both IAS values or leave both empty.');
             o.stallContext=context;
           }else if(prior?.stallContext)o.stallContext=prior.stallContext;
         }
@@ -893,7 +933,7 @@ export class SettingsView {
             }
             await this.app.activate(p.id, true);
             this.closeImport();
-            if (this.app.profile) this.setDraft(cloneProfile(this.app.profile));
+            if (this.app.profile&&!this.isDemo(this.app.profile)) this.setDraft(cloneProfile(this.app.profile));
           } }, 'Accept'))),
     );
   }
@@ -953,3 +993,6 @@ function parseTransitionIndex(path: string): number {
   const m = /^transitions\[(\d+)\]/.exec(path);
   return m ? Number(m[1]) : -1;
 }
+
+/** Restrict newly entered speeds to one decimal without touching loaded values. */
+function limitSpeedInput(el:HTMLInputElement):void{const n=el.valueAsNumber;if(Number.isFinite(n)&&Math.abs(n*10-Math.round(n*10))>1e-8)el.value=String(Math.round(n*10)/10);}

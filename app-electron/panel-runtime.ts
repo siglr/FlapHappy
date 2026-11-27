@@ -1,9 +1,9 @@
-import { defaultSettings } from '../core/settings';
+import { defaultSettings,forgetLocalProfile } from '../core/settings';
 import type { CockpitState } from '../core/cockpit';
 import type { ProfileStore, SimSample } from '../core/sim';
 import type { Profile, Settings } from '../core/types';
 import { initialBallast } from '../core/ballast';
-import { clamp01 } from '../core/profile';
+import { clamp01,sanitizeId } from '../core/profile';
 import { aircraftBindingKey,resolveProfileChoice,selectProfileId } from '../core/select';
 import { usesManualBallast } from '../core/weight';
 import { wsgFlightProfile } from '../core/wsg-flight';
@@ -13,7 +13,7 @@ import { PRESETS } from '../profiles';
 
 /** Main-process session for both panels. It does not depend on a renderer. */
 export class PanelRuntime {
-  private state: CockpitState = { ready: false, profile: null, sample: null, receivedAt: 0, ballast: 0, units: 'kt', height:'ft', agl:defaultSettings().agl, zoom: 1, showBallast:true,showAgl:true,autoHideExternal:false,simpleFlap:false,showTransitions:false,highlightRecommended:false,showWind:true,barShading:true };
+  private state: CockpitState = { ready: false, profile: null, sample: null, receivedAt: 0, ballast: 0, units: 'kt', height:'ft', agl:defaultSettings().agl, zoom: 1, showBallast:true,showAgl:true,autoHideExternal:false,simpleFlap:false,showTransitions:false,groupHiddenFlapLabels:false,highlightRecommended:false,showWind:true,barShading:true };
   private title: string | null = null;
   private generation = 0;
   private binding:string|null=null;
@@ -64,6 +64,18 @@ export class PanelRuntime {
     await this.refresh();
   }
 
+  async removeLocalProfile(id:string):Promise<void>{
+    if(id!==sanitizeId(id)||!id)throw Error('Invalid local profile ID');
+    await this.write(async()=>{
+      const meta=(await this.store.list()).find(p=>p.id===id);
+      if(!meta||meta.virtual)throw Error('Only saved local profiles may be deleted.');
+      await this.store.remove(id);
+      const settings=await this.settings();forgetLocalProfile(settings,id);delete this.ballastByProfile[id];
+      await this.store.setSettings(settings);
+    });
+    await this.refresh();
+  }
+
   async setBallast(f: number, profileId: string | null = this.state.profile?.id ?? null): Promise<boolean> {
     if (!profileId || this.state.profile?.id !== profileId || !usesManualBallast(this.state.profile) || typeof f !== 'number' || !isFinite(f)) return false;
     const fraction = clamp01(f);
@@ -82,7 +94,7 @@ export class PanelRuntime {
     const settings = await this.settings();
     const allMetas = await this.store.list();
     const strict=this.strictSelection();
-    const metas=this.sourceKind==='simulated'?allMetas:allMetas.filter(m=>!(m.source==='preset'&&m.id.startsWith('demo-')));
+    const metas=this.sourceKind==='simulated'?allMetas:allMetas.filter(m=>!m.virtual);
     let profile:Profile|null=null;
     let source:CockpitState['profileSource']='none', noProfileMessage:string|undefined,detectedWsgVariant:string|null=null;
     let id:string|null=null;
@@ -94,7 +106,8 @@ export class PanelRuntime {
       try{
         const match=await this.loadWsgVariant(key);
         const effective=match?wsgFlightProfile(match,settings.wsg_profile_overrides):null;
-        if(!effective||!manual&&!validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}).ok)return null;
+        if(!effective)return null;
+        if(!manual){const validation=validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount});if(!validation.ok){noProfileMessage=validation.errors.find(e=>e.code==='wsg-live-count')?.message??noProfileMessage;return null;}}
         return effective;
       }catch{return null;}
     };
@@ -114,10 +127,11 @@ export class PanelRuntime {
         if(g!==this.generation)return;
         detectedWsgVariant=match?.variantKey??null;
         const effective=match?wsgFlightProfile(match,settings.wsg_profile_overrides):null;
-        const usable=effective&&validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}).ok?effective:null;
+        const validation=effective?validateProfile(effective,{liveHandleCount:this.state.sample?.flapCount}):null;
+        const usable=effective&&validation?.ok?effective:null;
         choice=resolveProfileChoice(metas,settings,this.title,this.binding,{pending:false,usableVariantKey:usable?.wsg?.variantKey??null});
         if(choice.kind==='wsg'&&usable){profile=usable;source='wsg';}
-        else if(match)noProfileMessage='WSG '+match.variantKey+': profile or mapping unavailable. Review Profiles.';
+        else if(match)noProfileMessage=validation?.errors.find(e=>e.code==='wsg-live-count')?.message??'WSG '+match.variantKey+': profile or mapping unavailable. Review Profiles.';
       }
       if('id' in choice){id=choice.id;source=choice.kind;}
       if(!profile&&!id&&fallbackWsg&&this.title){
@@ -138,11 +152,11 @@ export class PanelRuntime {
     const ballast = profile ? initialBallast(profile, this.ballastByProfile[profile.id]).f : 0;
     const oldLvar = prior?.current_flap.lvar_name;
     const changed = prior?.id !== profile?.id || this.state.ballast !== ballast;
-    this.state = { ...this.state, ready: true, profile,profileSource:profile?source:'none',noProfileMessage:profile?undefined:noProfileMessage,detectedWsgVariant,aircraftTitle:this.title,aircraftBindingKey:this.binding, ballast, units: settings.units, height:settings.height, agl:settings.agl, zoom: settings.ui.zoom,showBallast:settings.ui.show_ballast,showAgl:settings.ui.show_agl,autoHideExternal:settings.ui.auto_hide_external,simpleFlap:settings.ui.simple_flap,showTransitions:settings.ui.show_transitions,highlightRecommended:settings.ui.highlight_recommended,showWind:settings.ui.show_wind,barShading:settings.ui.bar_shading };
+    this.state = { ...this.state, ready: true, profile,profileSource:profile?source:'none',noProfileMessage:profile?undefined:noProfileMessage,detectedWsgVariant,aircraftTitle:this.title,aircraftBindingKey:this.binding, ballast, units: settings.units, height:settings.height, agl:settings.agl, zoom: settings.ui.zoom,showBallast:settings.ui.show_ballast,showAgl:settings.ui.show_agl,autoHideExternal:settings.ui.auto_hide_external,simpleFlap:settings.ui.simple_flap,showTransitions:settings.ui.show_transitions,groupHiddenFlapLabels:settings.ui.group_hidden_flap_labels,highlightRecommended:settings.ui.highlight_recommended,showWind:settings.ui.show_wind,barShading:settings.ui.bar_shading };
     if (oldLvar !== profile?.current_flap.lvar_name) this.setLvar(profile?.current_flap.lvar_name ?? null);
     if (changed && profile) this.notifyBallast(profile.id, ballast);
     this.notifyActive?.(this.state);
-    if (profile && !profile.wsg && metas.some(m=>m.id===profile!.id&&!(m.source==='preset'&&m.id.startsWith('demo-'))) && settings.last_profile_id !== profile.id) {
+    if (profile && !profile.wsg && metas.some(m=>m.id===profile!.id&&!m.virtual) && settings.last_profile_id !== profile.id) {
       const selectedId = profile.id;
       await this.write(async () => {
         if (g !== this.generation) return;

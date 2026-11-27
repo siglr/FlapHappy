@@ -27,6 +27,7 @@ export interface CockpitState {
   simpleFlap?: boolean;
   /** Optional for older apps; applied by the in-sim toolbar wrapper only. */
   autoHideExternal?:boolean;
+  groupHiddenFlapLabels?: boolean;
   showTransitions: boolean;
   highlightRecommended?:boolean;
   showWind: boolean;

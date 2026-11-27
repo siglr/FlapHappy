@@ -44,18 +44,18 @@ describe('default public WSG profile source',()=>{
   await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);
   await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
   await page.selectOption('.fh-wsg-ballast','manual');
-  await page.fill('[data-wsg-override="transition 0 Light"]','94.5');
+  await page.fill('[data-wsg-override="transition 0 Light"]','51');
   await page.selectOption('[aria-label="Transition 0 visibility"]','show');
   await page.click('.fh-wsg-save-adjustments');
   await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
   const read=()=>page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF']);
   const saved=await read(); expect(saved.ballastMode).toBe('manual');expect(saved.lightWeightKg).toBeUndefined();
-  expect(Object.values(saved.transitions)[0]).toMatchObject({lightStartKt:94.5/1.852,excludeFromDisplay:false});
+  expect(Object.values(saved.transitions)[0]).toMatchObject({lightStartKt:51,excludeFromDisplay:false});
   await page.click('.fh-settings .fh-back');await page.click('.fh-cog');
   await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);
   await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
   expect(await page.locator('.fh-wsg-ballast').inputValue()).toBe('manual');
-  expect(Number(await page.locator('[data-wsg-override="transition 0 Light"]').inputValue())).toBeCloseTo(94.5);
+  expect(Number(await page.locator('[data-wsg-override="transition 0 Light"]').inputValue())).toBeCloseTo(51);
   await page.fill('[data-wsg-override="lightWeightKg"]','490');await page.click('.fh-wsg-save-adjustments');
   await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('Invalid curve'));
   expect(await read()).toEqual(saved);
@@ -66,17 +66,40 @@ describe('default public WSG profile source',()=>{
  });
 });
 
-it('names the physical landing flap and does not silently rebind a retained legacy stall pair',async()=>{
- const page=await env.newPage('?seed=demo',{width:1000,height:900});
+it('keeps prior speed precision, rounds new edits to a tenth and asks for stall confirmation only when context changes',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:900});
  try{
-  await page.evaluate(c=>{const a=(window as any).__flapHappy.app;a.host.getPublishedWsgCatalog=async()=>c;const p=c.profiles[0];a.settings.wsg_profile_overrides[p.variantKey]={mapping:JSON.stringify(p.bands.map(b=>[b.handleIndex,b.label])),stallContext:JSON.stringify([485,600,1,'N']),lightStallIasKph:72,heavyStallIasKph:82};},catalog);
+  await page.evaluate(c=>{const w=window as any,a=w.__flapHappy.app,p=c.profiles[0];a.host.getPublishedWsgCatalog=async()=>c;
+   a.settings.wsg_profile_overrides[p.variantKey]={mapping:JSON.stringify(p.bands.map(b=>[b.handleIndex,b.label])),stallContext:JSON.stringify([485,600,2,'L']),lightStallIasKph:70.12345,heavyStallIasKph:78.54321,transitions:{[JSON.stringify([[2,'L'],[1,'N']])]:{lightStartKt:50.12345}}};},catalog);
   await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
-  expect(await page.locator('.fh-wsg-adjustments').textContent()).toContain('most positive landing flap');
-  const confirm=page.locator('.fh-confirm-stall-context');expect(await confirm.isVisible()).toBe(true);
-  const read=()=>page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF']);
-  await page.fill('[data-wsg-override="lightStallIasKph"]','73');await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
-  expect((await read()).stallContext).toBe(JSON.stringify([485,600,1,'N']));
-  await page.locator('.fh-confirm-stall-context').check();await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
-  expect((await read()).stallContext).toBe(JSON.stringify([485,600,2,'L']));expect(await page.locator('.fh-confirm-stall-context').isVisible()).toBe(false);
+  const confirm=page.locator('.fh-confirm-stall-row'),light=page.locator('[data-wsg-override="transition 0 Light"]'),heavy=page.locator('[data-wsg-override="transition 0 Heavy"]'),vis=page.locator('[aria-label="Transition 0 visibility"]');
+  expect(await confirm.isVisible()).toBe(false);expect(await light.inputValue()).toBe('50.1');
+  await heavy.fill('60.456');expect(await heavy.inputValue()).toBe('60.5');
+  const sameRow=await page.evaluate(()=>{const a=document.querySelector('[data-wsg-override="transition 0 Light"]')!,b=document.querySelector('[aria-label="Transition 0 visibility"]')!;return a.closest('.fh-visibility-row')===b.closest('.fh-visibility-row');});expect(sameRow).toBe(true);
+  await vis.selectOption('show');expect(await confirm.isVisible()).toBe(false);await vis.selectOption('inherit');expect(await confirm.isVisible()).toBe(false);await vis.selectOption('show');
+  const weight=page.locator('[data-wsg-override="lightWeightKg"]');await weight.fill('490');expect(await confirm.isVisible()).toBe(true);await weight.fill('');expect(await confirm.isVisible()).toBe(false);
+  await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  const saved=await page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF']);expect(saved.lightStallIasKph).toBe(70.12345);expect(saved.heavyStallIasKph).toBe(78.54321);expect(saved.stallContext).toBe(JSON.stringify([485,600,2,'L']));expect(Object.values(saved.transitions)[0]).toMatchObject({lightStartKt:50.12345,heavyStartKt:60.5});
+  expect(await confirm.isVisible()).toBe(false);
+  await page.evaluate(()=>{const a=(window as any).__flapHappy.app;a.settings.wsg_profile_overrides['AS33-18-GF'].stallContext=JSON.stringify([485,600,1,'N']);});
+  await page.selectOption('.fh-profile-select','as33-18m');await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');await confirm.waitFor();await page.fill('[data-wsg-override="lightStallIasKph"]','39.5');await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));expect(await page.evaluate(()=> (window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF'].stallContext)).toBe(JSON.stringify([485,600,1,'N']));await confirm.waitFor();await page.locator('.fh-confirm-stall-context').check();await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));expect(await confirm.isVisible()).toBe(false);
+  await page.setViewportSize({width:430,height:800});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }finally{await page.close();}
+});
+
+it('keeps edited metric tenths and exact untouched knot overrides across save/reopen',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:850});try{
+  await page.evaluate(c=>{const a=(window as any).__flapHappy.app;a.setSpeedUnit('kmh');a.host.getPublishedWsgCatalog=async()=>c;const p=c.profiles[0];a.settings.wsg_profile_overrides[p.variantKey]={mapping:JSON.stringify(p.bands.map(b=>[b.handleIndex,b.label])),transitions:{[JSON.stringify([[2,'L'],[1,'N']])]:{heavyStartKt:60.123456}}};},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  const light=page.locator('[data-wsg-override="transition 0 Light"]');await light.fill('94.567');expect(await light.inputValue()).toBe('94.6');await page.click('.fh-wsg-save-adjustments');await page.waitForFunction(()=>document.querySelector('.fh-wsg-adjustment-status')?.textContent?.includes('saved locally'));
+  const saved=await page.evaluate(()=>Object.values((window as any).__flapHappy.app.settings.wsg_profile_overrides['AS33-18-GF'].transitions)[0]);expect(saved).toMatchObject({lightStartKt:94.6/1.852,heavyStartKt:60.123456});expect(await light.inputValue()).toBe('94.6');
+ }finally{await page.close();}
+});
+
+it('the complete WSG default (Show) label fits including dropdown arrow at default and scaled/narrow widths',async()=>{
+ const page=await env.newPage('?seed=demo',{width:760,height:850});try{
+  await page.evaluate(c=>{(window as any).__flapHappy.app.host.getPublishedWsgCatalog=async()=>c;},catalog);
+  await page.click('.fh-cog');await page.waitForFunction(()=>document.querySelector('option[value=":wsg:AS33-18-GF"]')!==null);await page.selectOption('.fh-profile-select',':wsg:AS33-18-GF');
+  for(const width of [760,506,400]){await page.setViewportSize({width,height:850});const measured=await page.locator('[aria-label="Transition 1 visibility"]').evaluate(el=>{const sel=el as HTMLSelectElement,style=getComputedStyle(sel),ctx=document.createElement('canvas').getContext('2d')!;ctx.font=style.font;return {label:sel.selectedOptions[0].textContent,available:sel.clientWidth,needed:ctx.measureText(sel.selectedOptions[0].textContent??'').width+parseFloat(style.paddingLeft)+parseFloat(style.paddingRight)+24};});expect(measured.label).toBe('WSG default (Show)');expect(measured.available).toBeGreaterThanOrEqual(measured.needed);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
  }finally{await page.close();}
 });

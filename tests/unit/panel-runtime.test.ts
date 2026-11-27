@@ -90,6 +90,8 @@ describe('main-process panel session', () => {
     const custom=await runtime.settings();custom.wsg_profile_overrides={'WSG-TEST':{mapping:JSON.stringify([[2,'L'],[1,'N'],[0,'1']]),ballastMode:'manual'}};await runtime.updateSettings(custom);
     expect(runtime.getState().profile?.wsg?.ballastMode).toBe('manual');expect(runtime.getState().profile?.weight_kg).toEqual({light:400,heavy:600});expect(await runtime.setBallast(.5)).toBe(true);
     const reset=await runtime.settings();reset.wsg_profile_overrides={};await runtime.updateSettings(reset);expect(runtime.getState().profile?.wsg?.ballastMode).toBe('live');expect(await runtime.setBallast(.9)).toBe(false);
+    runtime.sample(sample({aircraftTitle:'Matched',aircraftContainer:'exact_model',wingSpanM:18,flapCount:2}),2250);await vi.waitFor(()=>expect(runtime.getState()).toMatchObject({ready:true,profile:null,noProfileMessage:'Flap count mismatch: expected 3, received 2',sample:{flapCount:2}}));
+    runtime.sample(sample({aircraftTitle:'Matched',aircraftContainer:'exact_model',wingSpanM:18,flapCount:3}),2260);await vi.waitFor(()=>expect(runtime.getState().profileSource).toBe('wsg'));
     runtime.sample(sample({aircraftTitle:'Another',aircraftContainer:'unknown_model',wingSpanM:18,flapCount:3}),2300);await vi.waitFor(()=>expect(runtime.getState().ready).toBe(true));expect(runtime.getState().profile).toBeNull();
   });
 });
