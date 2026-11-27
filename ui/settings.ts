@@ -761,7 +761,7 @@ export class SettingsView {
       this.previewWsg(app.detectedWsgVariant);
       return;
     }
-    if (this.wsgPreview) { setText(this.liveLine, this.app.profile?.wsg?.variantKey===this.wsgPreview.variantKey?'Active WSG variant. Personal adjustments apply to this profile.':'Viewing published baseline. Active flight profile is unchanged.'); return; }
+    if (this.wsgPreview) { setText(this.liveLine, this.app.profile?.id.startsWith('WSG:')&&this.app.profile.wsg?.variantKey===this.wsgPreview.variantKey?'Active WSG variant. Personal adjustments apply to this profile.':'Viewing published baseline. Active flight profile is unchanged.'); return; }
     const d = this.draft;
     const s = app.lastSample;
     let live = 'Live: no sim data';

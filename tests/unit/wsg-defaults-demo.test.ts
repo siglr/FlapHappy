@@ -5,7 +5,11 @@ import {tmpdir} from 'node:os';
 import {FileProfileStore} from '../../adapters/electron/file-store';
 import {CachedWsgSource} from '../../adapters/electron/wsg-catalog-source';
 import {makeProfile,sample} from './helpers';
-import {PRESETS} from '../../profiles';
+import {DEMO_EXAMPLES,PRESETS} from '../../profiles';
+import snapshot from '../../profiles/demo-wsg-snapshot.json';
+import {parseWsgCatalog} from '../../core/wsg-catalog';
+import {validateProfile} from '../../core/validate';
+import {wsgBoundaries} from '../../core/wsg-flight';
 import {PanelRuntime} from '../../app-electron/panel-runtime';
 const roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
@@ -89,4 +93,24 @@ it('deletes a saved local profile and only its references, preserving a recovery
  const after=await runtime.settings();expect(after.profile_selection).toEqual({mode:'manual',manualId:null,fallbackId:null});expect(after.active_by_title).toEqual({two:other.id});expect(after.ballast_by_profile).toEqual({[other.id]:.7});expect(after.last_profile_id).toBeNull();
  expect(runtime.getState().profile).toBeNull();expect((await store.list()).find(m=>m.id===target.id)?.virtual).toBe(true);
  expect(readdirSync(store.profilesDir).sort()).toEqual([target.id+'.json.deleted.bak','other.json']);
+});
+
+
+it('offline Demo snapshots reproduce exact published variant, speeds and TAS visual endpoints without personal files or WSG defaults',async()=>{
+ const store=new FileProfileStore(temp());store.setDemoExamples(true);
+ const catalog=parseWsgCatalog(snapshot.catalog);expect(catalog.revision).toBe(27);
+ const expected=[['demo-as33-15m','AS33-15-GF',475,550,282,8],['demo-as33-18m','AS33-18-GF',485,600,282,8],['demo-js3','JS3-18-BC',378,600,292,6]] as const;
+ for(const [id,key,light,heavy,vne,n] of expected){
+  const p=await store.load(id),w=catalog.profiles.find(p=>p.variantKey===key)!;
+  expect(p.id).toBe(id);expect(p.source).toBe('preset');expect(p.notes).toContain('revision 27');
+  expect(p.handle_count).toBe(n);expect(p.weight_kg).toEqual({light,heavy});expect(p.vne).toBeNull();
+  expect(p.wsg).toEqual({variantKey:key,hiddenTransitions:w.bands.slice(1).map(b=>b.excludeFromDisplay),visualMaxKt:vne/1.852,ballastMode:'live'});
+  expect(p.flaps).toEqual(w.bands.map(b=>({label:b.label,handle_index:b.handleIndex})));
+  expect(p.vs_min).toEqual({no_ballast_kt:w.lightStallIasKph!/1.852,max_ballast_kt:w.heavyStallIasKph!/1.852});
+  expect(p.transitions).toEqual(w.bands.slice(1).map(b=>({no_ballast_kt:b.lightStartKt,max_ballast_kt:b.heavyStartKt})));
+  expect(validateProfile(p,{liveHandleCount:n}).ok).toBe(true);
+  for(const f of [0,1]){const bounds=wsgBoundaries(p,f)!;expect(bounds.at(-1)).toBe(vne/1.852);expect(bounds[0]).toBe((f?w.heavyStallIasKph!:w.lightStallIasKph!)/1.852);}
+ }
+ expect(DEMO_EXAMPLES).toHaveLength(3);expect(readdirSync(store.profilesDir)).toEqual([]);
+ store.setDemoExamples(false);expect(await store.list()).toEqual([]);
 });

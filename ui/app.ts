@@ -869,7 +869,7 @@ export class App {
     this.mainConnection.classList.toggle('fh-main-live',model.link==='live');
     setText(this.mainAircraft,this.lastSample?.connected&&this.lastSample.aircraftTitle?this.lastSample.aircraftTitle+(model.link==='nodata'?' (last seen)':''):'Aircraft not detected');
     setText(this.mainActiveProfile,this.profile?this.profile.id:'None');
-    const type=this.profile?.wsg?'WSG.org':this.profile&&this.metas.some(m=>m.id===this.profile?.id&&m.virtual)?'Demo example':this.profile?'Custom profile':'No active profile';
+    const type=this.profile&&this.metas.some(m=>m.id===this.profile?.id&&m.virtual)?'Demo example':this.profile?.wsg?'WSG.org':this.profile?'Custom profile':'No active profile';
     const source=this.activeProfileSource==='manual'?'Manual selection':this.activeProfileSource==='fallback'?'Fallback':this.activeProfileSource==='assigned'?'Aircraft assignment':this.activeProfileSource==='local'||this.activeProfileSource==='wsg'?'Auto-detected':'';
     setText(this.mainProfileSource,type+(this.profile&&source?' - '+source:'')+(model.incompleteMessage?.startsWith('Flap count mismatch')?' - '+model.incompleteMessage:''));
   }
